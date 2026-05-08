@@ -6,12 +6,13 @@ import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.exception.BusinessException;
+import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.EmailNotVerifiedException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
+import com.hireflow.hireflow.service.EmailService;
 import com.hireflow.hireflow.service.impl.AuthServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +39,8 @@ class AuthServiceImplTest {
 
     @Mock
     private UserService userService;
+    @Mock
+    private EmailService emailService;
     @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
@@ -102,13 +105,13 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should wrap unexpected error during registration as BusinessException")
+    @DisplayName("Should wrap unexpected error during registration as CustomException")
     void register_unexpectedException() {
         RegisterRequest request = new RegisterRequest("John", "Doe", "john@example.com", "password123", Role.APPLICANT);
         when(userService.existsByEmail(anyString())).thenThrow(new RuntimeException("DB down"));
 
         assertThatThrownBy(() -> authService.register(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessageContaining("Internal Server Error");
     }
 
@@ -139,36 +142,36 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should throw BusinessException when account is already verified")
+    @DisplayName("Should throw CustomException when account is already verified")
     void verifyOtp_alreadyVerified() {
         VerifyOtpRequest request = new VerifyOtpRequest("john@example.com", "123456");
         when(userService.findByEmail(request.getEmail())).thenReturn(Optional.of(verifiedUser));
 
         assertThatThrownBy(() -> authService.verifyOtp(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessage("Account is already verified");
     }
 
     @Test
-    @DisplayName("Should throw BusinessException when OTP does not match")
+    @DisplayName("Should throw CustomException when OTP does not match")
     void verifyOtp_invalidOtp() {
         VerifyOtpRequest request = new VerifyOtpRequest("jane@example.com", "999999");
         when(userService.findByEmail(request.getEmail())).thenReturn(Optional.of(unverifiedUser));
 
         assertThatThrownBy(() -> authService.verifyOtp(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessage("Invalid OTP");
     }
 
     @Test
-    @DisplayName("Should throw BusinessException when OTP has expired")
+    @DisplayName("Should throw CustomException when OTP has expired")
     void verifyOtp_expiredOtp() {
         unverifiedUser.setOtpExpiry(Instant.now().minusSeconds(60));
         VerifyOtpRequest request = new VerifyOtpRequest("jane@example.com", "123456");
         when(userService.findByEmail(request.getEmail())).thenReturn(Optional.of(unverifiedUser));
 
         assertThatThrownBy(() -> authService.verifyOtp(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessageContaining("expired");
     }
 
@@ -190,13 +193,13 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should throw BusinessException when email is not registered")
+    @DisplayName("Should throw CustomException when email is not registered")
     void login_userNotFound() {
         LoginRequest request = new LoginRequest("ghost@example.com", "password123");
         when(userService.findByEmail(request.getEmail())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessage("Invalid credentials");
     }
 
@@ -222,7 +225,7 @@ class AuthServiceImplTest {
 
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(EmailNotVerifiedException.class)
-                .hasMessageContaining("expired");
+                .hasMessageContaining("new OTP has been sent");
 
         assertThat(unverifiedUser.getOtp()).isNotNull();
         assertThat(unverifiedUser.getOtpExpiry()).isAfter(Instant.now());
@@ -230,24 +233,24 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should throw BusinessException when password is incorrect")
+    @DisplayName("Should throw CustomException when password is incorrect")
     void login_wrongPassword() {
         LoginRequest request = new LoginRequest("john@example.com", "wrongpass");
         doThrow(new BadCredentialsException("Bad credentials")).when(authenticationManager).authenticate(any());
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessage("Invalid credentials");
     }
 
     @Test
-    @DisplayName("Should wrap unexpected error during login as BusinessException")
+    @DisplayName("Should wrap unexpected error during login as CustomException")
     void login_unexpectedException() {
         LoginRequest request = new LoginRequest("john@example.com", "password123");
         when(userService.findByEmail(anyString())).thenThrow(new RuntimeException("DB down"));
 
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(BusinessException.class)
+                .isInstanceOf(CustomException.class)
                 .hasMessageContaining("Internal Server Error");
     }
 }

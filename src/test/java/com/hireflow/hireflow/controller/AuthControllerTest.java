@@ -7,7 +7,9 @@ import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.service.EmailService;
 import java.time.Instant;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,7 @@ class AuthControllerTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private UserRepository userRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @MockitoBean private EmailService emailService;
 
     @AfterEach
     void cleanUp() {
@@ -194,7 +197,7 @@ class AuthControllerTest {
                         .content(objectMapper.writeValueAsString(new LoginRequest("expired@example.com", "password123"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("Your OTP has expired. A new OTP has been sent to your email."));
+                .andExpect(jsonPath("$.message").value("Please verify your email. A new OTP has been sent to your email."));
 
         User updated = userRepository.findByEmail("expired@example.com").orElseThrow();
         assertThat(updated.getOtp()).isNotEqualTo(originalOtp);

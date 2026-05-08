@@ -5,13 +5,14 @@ import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
-import com.hireflow.hireflow.exception.BusinessException;
+import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.EmailNotVerifiedException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
 import com.hireflow.hireflow.service.AuthService;
+import com.hireflow.hireflow.service.EmailService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,13 +32,13 @@ import java.time.Instant;
 public class AuthServiceImpl implements AuthService {
 
     private final UserService userService;
+    private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
     private final UserMapper userMapper;
 
     @Override
-    @Transactional
     public void register(RegisterRequest request) {
         try {
             if (userService.existsByEmail(request.getEmail())) {
@@ -57,16 +58,14 @@ public class AuthServiceImpl implements AuthService {
             user.setOtpExpiry(Instant.now().plusSeconds(600));
 
             userService.save(user);
-
-            // TODO: replace with EmailService.sendOtp(request.getEmail(), otp)
-            log.info("OTP for {}: {}", request.getEmail(), otp);
+            emailService.sendOtp(request.getEmail(), otp);
 
         } catch (DuplicateResourceException ex) {
             log.error(ex.getMessage());
             throw ex;
         } catch (Exception ex) {
             log.error("User registration failed: {}", ex.getMessage());
-            throw new BusinessException("User registration failed: Internal Server Error");
+            throw new CustomException("User registration failed: Internal Server Error");
         }
     }
 
@@ -78,15 +77,15 @@ public class AuthServiceImpl implements AuthService {
                     .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
             if (user.isVerified()) {
-                throw new BusinessException("Account is already verified");
+                throw new CustomException("Account is already verified");
             }
 
             if (!request.getOtp().equals(user.getOtp())) {
-                throw new BusinessException("Invalid OTP");
+                throw new CustomException("Invalid OTP");
             }
 
             if (Instant.now().isAfter(user.getOtpExpiry())) {
-                throw new BusinessException("OTP has expired. Please request a new one");
+                throw new CustomException("OTP has expired. Please request a new one");
             }
 
             user.setOtp(null);
@@ -95,12 +94,12 @@ public class AuthServiceImpl implements AuthService {
 
             userService.save(user);
 
-        } catch (ResourceNotFoundException | BusinessException ex) {
+        } catch (ResourceNotFoundException | CustomException ex) {
             log.error(ex.getMessage());
             throw ex;
         } catch (Exception ex) {
             log.error("OTP verification failed: {}", ex.getMessage());
-            throw new BusinessException("OTP verification failed: Internal Server Error");
+            throw new CustomException("OTP verification failed: Internal Server Error");
         }
     }
 
@@ -112,10 +111,10 @@ public class AuthServiceImpl implements AuthService {
             );
 
             User user = userService.findByEmail(request.getEmail())
-                    .orElseThrow(() -> new BusinessException("Invalid credentials"));
+                    .orElseThrow(() -> new CustomException("Invalid credentials"));
 
             if (!user.isVerified()) {
-                requireEmailVerification(user);
+                handleUnverifiedLogin(user);
             }
 
             String token = jwtUtil.generateToken(user.getEmail());
@@ -124,26 +123,31 @@ public class AuthServiceImpl implements AuthService {
 
         } catch (BadCredentialsException ex) {
             log.error("Invalid credentials for: {}", request.getEmail());
-            throw new BusinessException("Invalid credentials");
-        } catch (EmailNotVerifiedException | BusinessException ex) {
+            throw new CustomException("Invalid credentials");
+        } catch (EmailNotVerifiedException | CustomException ex) {
             log.warn(ex.getMessage());
             throw ex;
         } catch (Exception ex) {
             log.error("Login failed: {}", ex.getMessage());
-            throw new BusinessException("Login failed: Internal Server Error");
+            throw new CustomException("Login failed: Internal Server Error");
         }
     }
 
-    private void requireEmailVerification(User user) {
+    private void handleUnverifiedLogin(User user) {
         if (user.getOtpExpiry() == null || Instant.now().isAfter(user.getOtpExpiry())) {
-            String otp = generateOtp();
-            user.setOtp(otp);
-            user.setOtpExpiry(Instant.now().plusSeconds(600));
-            userService.save(user);
-            log.info("New OTP for {}: {}", user.getEmail(), otp);
-            throw new EmailNotVerifiedException("Your OTP has expired. A new OTP has been sent to your email.");
+            String otp = rotateOtp(user);
+            emailService.sendOtp(user.getEmail(), otp);
+            throw new EmailNotVerifiedException("Please verify your email. A new OTP has been sent to your email.");
         }
         throw new EmailNotVerifiedException("Please verify your email. Enter the OTP sent to your inbox.");
+    }
+
+    protected String rotateOtp(User user) {
+        String otp = generateOtp();
+        user.setOtp(otp);
+        user.setOtpExpiry(Instant.now().plusSeconds(600));
+        userService.save(user);
+        return otp;
     }
 
     private String generateOtp() {
