@@ -40,6 +40,39 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    @Async("emailAsyncExecutor")
+    public void sendCompanyWelcome(String to, String firstName, String companyName) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(from);
+            helper.setTo(to);
+            helper.setSubject("Welcome to HireFlow, " + companyName + "!");
+            helper.setText(buildWelcomeEmailBody(firstName, companyName), true);
+            mailSender.send(message);
+            log.info("Welcome email sent to {}", to);
+        } catch (MessagingException ex) {
+            log.error("Failed to send welcome email to {}: {}", to, ex.getMessage());
+            throw new CustomException("Failed to send welcome email.");
+        }
+    }
+
+    private String buildWelcomeEmailBody(String firstName, String companyName) {
+        return """
+                <html>
+                  <body style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px;">
+                    <h2 style="color: #2563EB;">Welcome to HireFlow, %s!</h2>
+                    <p>Your company <strong>%s</strong> has been successfully registered on HireFlow.</p>
+                    <p>You can now create job listings, manage candidates, and run AI-powered screening.</p>
+                    <p style="color: #6B7280; font-size: 12px;">
+                      Need help? Reply to this email and our team will assist you.
+                    </p>
+                  </body>
+                </html>
+                """.formatted(firstName, companyName);
+    }
+
     private String buildOtpEmailBody(String otp) {
         return """
                 <html>
@@ -58,3 +91,4 @@ public class EmailServiceImpl implements EmailService {
                 """.formatted(otp);
     }
 }
+
