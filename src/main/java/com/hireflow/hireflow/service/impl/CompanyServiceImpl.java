@@ -35,6 +35,7 @@ public class CompanyServiceImpl implements CompanyService {
     @Transactional
     public CompanyResponse create(CompanyRequest request, User user) {
         try {
+            user = userService.findUserById(user.getId());
             requireAdmin(user);
 
             if (user.getCompany() != null) {
@@ -68,6 +69,7 @@ public class CompanyServiceImpl implements CompanyService {
     @Transactional
     public CompanyResponse update(String id, CompanyRequest request, User user) {
         try {
+            user = userService.findUserById(user.getId());
             Company company = companyRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Company not found"));
             requireOwner(user, company);
@@ -102,9 +104,16 @@ public class CompanyServiceImpl implements CompanyService {
     }
 
     @Override
+    public Company findCompanyById(String id) {
+        return companyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Company not found"));
+    }
+
+    @Override
     @Transactional
     public void delete(String id, User user) {
         try {
+            user = userService.findUserById(user.getId());
             Company company = companyRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Company not found"));
             requireOwner(user, company);
@@ -127,7 +136,8 @@ public class CompanyServiceImpl implements CompanyService {
                 throw new ResourceNotFoundException("Company not found for the user");
             }
 
-            return companyMapper.toResponse(user.getCompany());
+            Company company = findCompanyById(user.getCompany().getId());
+            return companyMapper.toResponse(company);
         } catch (AccessDeniedException | ResourceNotFoundException ex) {
             log.error(ex.getMessage());
             throw ex;

@@ -1,5 +1,6 @@
 package com.hireflow.hireflow.service;
 
+import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.dto.request.CompanyRequest;
 import com.hireflow.hireflow.dto.response.CompanyResponse;
@@ -15,6 +16,8 @@ public interface CompanyService {
     CompanyResponse findById(String id);
 
     Page<CompanyResponse> findAll(Pageable pageable);
+
+    Company findCompanyById(String id);
 
     void delete(String id, User user);
 

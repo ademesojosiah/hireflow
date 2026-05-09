@@ -1,14 +1,11 @@
 package com.hireflow.hireflow.config;
 
-import com.hireflow.hireflow.data.model.Skill;
-import com.hireflow.hireflow.data.repository.SkillRepository;
+import com.hireflow.hireflow.service.SkillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -121,32 +118,16 @@ public class SkillSeedCommandRunner implements CommandLineRunner {
 
     private static final int MINIMUM_SKILL_COUNT = DEFAULT_SKILLS.size();
 
-    private final SkillRepository skillRepository;
+    private final SkillService skillService;
 
     @Override
-    @Transactional
     public void run(String... args) {
-        long skillCount = skillRepository.count();
-        if (skillCount >= MINIMUM_SKILL_COUNT) {
-            log.info("Skill seeding skipped; {} skills already exist", skillCount);
+        int seeded = skillService.seedDefaultsIfBelowMinimum(DEFAULT_SKILLS);
+        if (seeded == 0) {
+            log.info("Skill seeding skipped; at least {} skills already exist or defaults are present", MINIMUM_SKILL_COUNT);
             return;
         }
 
-        List<Skill> missingSkills = new ArrayList<>();
-        for (String skillName : DEFAULT_SKILLS) {
-            if (!skillRepository.existsByNameIgnoreCase(skillName)) {
-                Skill skill = new Skill();
-                skill.setName(skillName);
-                missingSkills.add(skill);
-            }
-        }
-
-        if (missingSkills.isEmpty()) {
-            log.info("Skill seeding skipped; default skills already exist");
-            return;
-        }
-
-        skillRepository.saveAll(missingSkills);
-        log.info("Seeded {} default skills", missingSkills.size());
+        log.info("Seeded {} default skills", seeded);
     }
 }

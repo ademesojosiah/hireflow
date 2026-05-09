@@ -139,6 +139,53 @@ class JobListingControllerTest {
     }
 
     @Test
+    @DisplayName("Should create full stack engineer job listing with rich text fields and skills")
+    void create_fullStackEngineerPayload() throws Exception {
+        Skill backend = saveSkill("Payload Backend Engineering");
+        Skill cloud = saveSkill("Payload Cloud Infrastructure");
+        Skill database = saveSkill("Payload Database Performance");
+        JobListingRequest request = new JobListingRequest(
+                "Full stack engineer",
+                JobType.FULL_TIME,
+                "r",
+                "<p>We are looking for a Backend Developer to build scalable APIs and maintain cloud infrastructure.</p>",
+                "<p>Responsibilities:</p><ul><li><p>Develop REST APIs</p></li><li><p>Maintain database performance</p></li><li><p>Collaborate with frontend engineers</p></li></ul><p></p>",
+                "<p>Required Qualifications:</p><ul><li><p>3+ years of Java experience</p></li><li><p>Experience with Spring Boot</p></li><li><p>Knowledge of SQL databases</p></li></ul><p></p>",
+                "<p>Preferred Qualifications:</p><ul><li><p>AWS experience</p></li><li><p>Docker/Kubernetes knowledge</p></li><li><p>Previous startup experience</p></li></ul><p></p>",
+                JobStatus.OPEN,
+                40,
+                75,
+                Set.of(backend.getId(), cloud.getId(), database.getId())
+        );
+
+        mockMvc.perform(post("/api/v1/jobs")
+                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.title").value("Full stack engineer"))
+                .andExpect(jsonPath("$.data.type").value("FULL_TIME"))
+                .andExpect(jsonPath("$.data.location").value("r"))
+                .andExpect(jsonPath("$.data.summary").value(request.getSummary()))
+                .andExpect(jsonPath("$.data.responsibilities").value(request.getResponsibilities()))
+                .andExpect(jsonPath("$.data.requiredQualifications").value(request.getRequiredQualifications()))
+                .andExpect(jsonPath("$.data.preferredQualifications").value(request.getPreferredQualifications()))
+                .andExpect(jsonPath("$.data.status").value("OPEN"))
+                .andExpect(jsonPath("$.data.autoRejectThreshold").value(40))
+                .andExpect(jsonPath("$.data.autoPassThreshold").value(75))
+                .andExpect(jsonPath("$.data.companyId").value(company.getId()))
+                .andExpect(jsonPath("$.data.skills.length()").value(3));
+
+        JobListing persisted = jobListingRepository.findAll().getFirst();
+        assertThat(persisted.getTitle()).isEqualTo("Full stack engineer");
+        assertThat(persisted.getSummary()).isEqualTo(request.getSummary());
+        assertThat(persisted.getResponsibilities()).isEqualTo(request.getResponsibilities());
+        assertThat(persisted.getRequiredQualifications()).isEqualTo(request.getRequiredQualifications());
+        assertThat(persisted.getPreferredQualifications()).isEqualTo(request.getPreferredQualifications());
+    }
+
+    @Test
     @DisplayName("Should return 404 when a supplied skillId does not exist")
     void create_unknownSkillId() throws Exception {
         Skill java = saveSkill("Scala");

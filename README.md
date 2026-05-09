@@ -67,6 +67,63 @@ Key conventions:
 - **DTOs at the boundary**: entities never leak past the service layer — controllers consume request/response DTOs only.
 - **Mappers, not builders**: object conversion lives in `@Component` mapper classes, never inline.
 
+### Entity Relationship Diagram (Current v3.0 State)
+
+```
+┌─────────────┐
+│   Company   │ (root tenant entity)
+│  (id, PK)   │
+│  name, etc. │
+└──────┬──────┘
+       │
+       │ 1:N (owns)
+       │
+┌──────▼──────────────────────┐
+│      JobListing             │
+│  (id, PK, company_id, FK)   │
+│  title, type, location      │
+│  summary, responsibilities  │
+│  qualifications, status     │
+│  autoReject/PassThreshold   │
+└──────┬──────────────────────┘
+       │
+       │ 1:N (mapped via join table)
+       │
+┌──────▼────────────────────────┐
+│   JobListingSkill (Join)       │
+│  (job_listing_id, skill_id)    │
+│  @UniqueConstraint enforced    │
+│  cascade=ALL, orphanRemoval    │
+└──────┬────────────────────────┘
+       │
+       │ N:1
+       │
+┌──────▼──────────────────────┐
+│        Skill                 │
+│  (id, PK)                    │
+│  name (unique, indexed)      │
+│  lookup table for all skills │
+└─────────────────────────────┘
+
+┌────────────────────┐
+│       User         │ (multi-tenant)
+│  (id, PK)          │
+│  role (enum)       │
+│  company_id (FK)   │
+│  verified (bool)   │
+│  email (unique)    │
+└────────────────────┘
+       │
+       │ M:1
+       │
+    (belongs to Company)
+
+All entities extend BaseEntity (UUID id, createdAt, updatedAt).
+Future entities: Application, ResumeProfile, AIScreeningResult, InterviewSlot, StageUpdate.
+
+NOTE: This diagram is maintained as entities evolve. Update immediately when adding/removing fields or relationships.
+```
+
 
 ---
 

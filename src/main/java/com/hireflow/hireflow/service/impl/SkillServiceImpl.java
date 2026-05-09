@@ -7,6 +7,7 @@ import com.hireflow.hireflow.dto.request.SkillRequest;
 import com.hireflow.hireflow.dto.response.SkillResponse;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
+import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.SkillMapper;
 import com.hireflow.hireflow.service.SkillService;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -72,6 +74,49 @@ public class SkillServiceImpl implements SkillService {
             log.error("Skill search failed: {}", ex.getMessage());
             throw new CustomException("Skill search failed: Internal Server Error");
         }
+    }
+
+    @Override
+    public List<Skill> findAllByIds(Set<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+
+        List<Skill> found = skillRepository.findAllById(ids);
+        if (found.size() != ids.size()) {
+            throw new ResourceNotFoundException("One or more skills not found");
+        }
+        return found;
+    }
+
+    @Override
+    @Transactional
+    public int seedDefaultsIfBelowMinimum(List<String> skillNames) {
+        if (skillNames == null || skillNames.isEmpty()) {
+            return 0;
+        }
+
+        if (skillRepository.count() >= skillNames.size()) {
+            return 0;
+        }
+
+        List<Skill> missingSkills = skillNames.stream()
+                .map(this::normalizeName)
+                .filter(name -> !name.isBlank())
+                .distinct()
+                .filter(name -> !skillRepository.existsByNameIgnoreCase(name))
+                .map(name -> {
+                    Skill skill = new Skill();
+                    skill.setName(name);
+                    return skill;
+                })
+                .toList();
+
+        if (missingSkills.isEmpty()) {
+            return 0;
+        }
+
+        return skillRepository.saveAll(missingSkills).size();
     }
 
     private String normalizeName(String value) {

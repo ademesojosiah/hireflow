@@ -5,7 +5,6 @@ import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
-import com.hireflow.hireflow.data.repository.SkillRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
@@ -44,7 +43,9 @@ import static org.mockito.Mockito.*;
 class JobListingServiceImplTest {
 
     @Mock private JobListingRepository jobListingRepository;
-    @Mock private SkillRepository skillRepository;
+    @Mock private SkillService skillService;
+    @Mock private CompanyService companyService;
+    @Mock private UserService userService;
     @Mock private JobListingMapper jobListingMapper;
     @InjectMocks private JobListingServiceImpl jobListingService;
 
@@ -80,6 +81,9 @@ class JobListingServiceImplTest {
         job.setCompany(company);
 
         request = sampleRequest(JobStatus.OPEN, 30, 80, null);
+
+        lenient().when(companyService.findCompanyById("company-1")).thenReturn(company);
+        lenient().when(companyService.findCompanyById("company-2")).thenReturn(otherCompany);
     }
 
     private JobListingRequest sampleRequest(JobStatus status, int autoReject, int autoPass, Set<String> skillIds) {
@@ -106,9 +110,26 @@ class JobListingServiceImplTest {
                 JobStatus.OPEN, 30, 80, "company-1", "Acme", List.of());
     }
 
+    private JobListingRequest fullStackEngineerRequest(Set<String> skillIds) {
+        return new JobListingRequest(
+                "Full stack engineer",
+                JobType.FULL_TIME,
+                "r",
+                "<p>We are looking for a Backend Developer to build scalable APIs and maintain cloud infrastructure.</p>",
+                "<p>Responsibilities:</p><ul><li><p>Develop REST APIs</p></li><li><p>Maintain database performance</p></li><li><p>Collaborate with frontend engineers</p></li></ul><p></p>",
+                "<p>Required Qualifications:</p><ul><li><p>3+ years of Java experience</p></li><li><p>Experience with Spring Boot</p></li><li><p>Knowledge of SQL databases</p></li></ul><p></p>",
+                "<p>Preferred Qualifications:</p><ul><li><p>AWS experience</p></li><li><p>Docker/Kubernetes knowledge</p></li><li><p>Previous startup experience</p></li></ul><p></p>",
+                JobStatus.OPEN,
+                40,
+                75,
+                skillIds
+        );
+    }
+
     @Test
     @DisplayName("Should create a job listing for the manager's own company")
     void create_success() {
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
         when(jobListingMapper.toEntity(eq(request), eq(company), anyList())).thenReturn(job);
         when(jobListingRepository.save(job)).thenReturn(job);
         when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
@@ -132,15 +153,82 @@ class JobListingServiceImplTest {
         JobListingRequest withSkills = sampleRequest(JobStatus.OPEN, 30, 80, ids);
         List<Skill> resolved = List.of(java, spring);
 
-        when(skillRepository.findAllById(ids)).thenReturn(resolved);
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+        when(skillService.findAllByIds(ids)).thenReturn(resolved);
         when(jobListingMapper.toEntity(eq(withSkills), eq(company), eq(resolved))).thenReturn(job);
         when(jobListingRepository.save(job)).thenReturn(job);
         when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
 
         jobListingService.create(withSkills, hManager);
 
-        verify(skillRepository).findAllById(ids);
+        verify(skillService).findAllByIds(ids);
         verify(jobListingMapper).toEntity(eq(withSkills), eq(company), eq(resolved));
+    }
+
+    @Test
+    @DisplayName("Should create full stack engineer job using company service and skill service")
+    void create_fullStackEngineerPayload() {
+        Set<String> ids = Set.of("skill-1", "skill-2", "skill-3");
+        JobListingRequest payload = fullStackEngineerRequest(ids);
+        Skill backend = new Skill();
+        backend.setId("skill-1");
+        backend.setName("Backend Engineering");
+        Skill cloud = new Skill();
+        cloud.setId("skill-2");
+        cloud.setName("Cloud Infrastructure");
+        Skill database = new Skill();
+        database.setId("skill-3");
+        database.setName("Database Performance");
+        List<Skill> resolved = List.of(backend, cloud, database);
+
+        JobListing fullStackJob = new JobListing();
+        fullStackJob.setId("job-full-stack");
+        fullStackJob.setTitle(payload.getTitle());
+        fullStackJob.setType(payload.getType());
+        fullStackJob.setLocation(payload.getLocation());
+        fullStackJob.setSummary(payload.getSummary());
+        fullStackJob.setResponsibilities(payload.getResponsibilities());
+        fullStackJob.setRequiredQualifications(payload.getRequiredQualifications());
+        fullStackJob.setPreferredQualifications(payload.getPreferredQualifications());
+        fullStackJob.setStatus(payload.getStatus());
+        fullStackJob.setAutoRejectThreshold(payload.getAutoRejectThreshold());
+        fullStackJob.setAutoPassThreshold(payload.getAutoPassThreshold());
+        fullStackJob.setCompany(company);
+
+        JobListingResponse response = new JobListingResponse(
+                "job-full-stack",
+                payload.getTitle(),
+                payload.getType(),
+                payload.getLocation(),
+                payload.getSummary(),
+                payload.getResponsibilities(),
+                payload.getRequiredQualifications(),
+                payload.getPreferredQualifications(),
+                payload.getStatus(),
+                payload.getAutoRejectThreshold(),
+                payload.getAutoPassThreshold(),
+                "company-1",
+                "Acme",
+                List.of()
+        );
+
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+        when(skillService.findAllByIds(ids)).thenReturn(resolved);
+        when(jobListingMapper.toEntity(payload, company, resolved)).thenReturn(fullStackJob);
+        when(jobListingRepository.save(fullStackJob)).thenReturn(fullStackJob);
+        when(jobListingMapper.toResponse(fullStackJob)).thenReturn(response);
+
+        JobListingResponse result = jobListingService.create(payload, hManager);
+
+        assertThat(result.getTitle()).isEqualTo("Full stack engineer");
+        assertThat(result.getSummary()).isEqualTo(payload.getSummary());
+        assertThat(result.getAutoRejectThreshold()).isEqualTo(40);
+        assertThat(result.getAutoPassThreshold()).isEqualTo(75);
+        verify(userService).findUserById("user-1");
+        verify(companyService).findCompanyById("company-1");
+        verify(skillService).findAllByIds(ids);
+        verify(jobListingMapper).toEntity(payload, company, resolved);
+        verify(jobListingRepository).save(fullStackJob);
     }
 
     @Test
@@ -148,10 +236,9 @@ class JobListingServiceImplTest {
     void create_unknownSkillId() {
         Set<String> ids = Set.of("skill-1", "skill-missing");
         JobListingRequest withSkills = sampleRequest(JobStatus.OPEN, 30, 80, ids);
-        Skill onlyOne = new Skill();
-        onlyOne.setId("skill-1");
-
-        when(skillRepository.findAllById(ids)).thenReturn(List.of(onlyOne));
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+        when(skillService.findAllByIds(ids))
+                .thenThrow(new ResourceNotFoundException("One or more skills not found"));
 
         assertThatThrownBy(() -> jobListingService.create(withSkills, hManager))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -179,6 +266,7 @@ class JobListingServiceImplTest {
     @DisplayName("Should reject when auto-reject threshold is not less than auto-pass threshold")
     void create_invalidThresholds() {
         JobListingRequest invalid = sampleRequest(JobStatus.OPEN, 80, 80, null);
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
         assertThatThrownBy(() -> jobListingService.create(invalid, hManager))
                 .isInstanceOf(CustomException.class)
                 .hasMessageContaining("Auto-reject threshold");
@@ -187,6 +275,7 @@ class JobListingServiceImplTest {
     @Test
     @DisplayName("Should update a job listing owned by the manager's company")
     void update_success() {
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
         when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
         when(jobListingRepository.save(job)).thenReturn(job);
         when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
@@ -205,8 +294,9 @@ class JobListingServiceImplTest {
         JobListingRequest withSkills = sampleRequest(JobStatus.OPEN, 30, 80, ids);
         List<Skill> resolved = List.of(java);
 
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
         when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
-        when(skillRepository.findAllById(ids)).thenReturn(resolved);
+        when(skillService.findAllByIds(ids)).thenReturn(resolved);
         when(jobListingRepository.save(job)).thenReturn(job);
         when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
 
@@ -237,6 +327,7 @@ class JobListingServiceImplTest {
     @Test
     @DisplayName("Should delete a job listing owned by the manager's company")
     void delete_success() {
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
         when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
 
         jobListingService.delete("job-1", hManager);

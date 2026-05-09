@@ -5,7 +5,6 @@ import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
-import com.hireflow.hireflow.data.repository.SkillRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
@@ -13,7 +12,10 @@ import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.JobListingMapper;
+import com.hireflow.hireflow.service.CompanyService;
 import com.hireflow.hireflow.service.JobListingService;
+import com.hireflow.hireflow.service.SkillService;
+import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -31,7 +33,9 @@ import java.util.Set;
 public class JobListingServiceImpl implements JobListingService {
 
     private final JobListingRepository jobListingRepository;
-    private final SkillRepository skillRepository;
+    private final SkillService skillService;
+    private final CompanyService companyService;
+    private final UserService userService;
     private final JobListingMapper jobListingMapper;
 
     @Override
@@ -111,13 +115,14 @@ public class JobListingServiceImpl implements JobListingService {
     }
 
     private Company requireCompanyManager(User user) {
+        user = userService.findUserById(user.getId());
         if (user == null || (user.getRole() != Role.ADMIN && user.getRole() != Role.HMANAGER)) {
             throw new AccessDeniedException("Only admins and hiring managers can manage job listings");
         }
         if (user.getCompany() == null) {
             throw new AccessDeniedException("You must belong to a company to manage job listings");
         }
-        return user.getCompany();
+        return companyService.findCompanyById(user.getCompany().getId());
     }
 
     private void requireJobOwner(User user, JobListing job) {
@@ -137,10 +142,6 @@ public class JobListingServiceImpl implements JobListingService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        List<Skill> found = skillRepository.findAllById(ids);
-        if (found.size() != ids.size()) {
-            throw new ResourceNotFoundException("One or more skills not found");
-        }
-        return found;
+        return skillService.findAllByIds(ids);
     }
 }

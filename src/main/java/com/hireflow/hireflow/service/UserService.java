@@ -8,6 +8,9 @@ public interface UserService {
 
     Optional<User> findByEmail(String email);
 
+    User findUserById(String userId);
+
+
     boolean existsByEmail(String email);
 
     User save(User user);

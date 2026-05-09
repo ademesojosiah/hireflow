@@ -69,6 +69,8 @@ class CompanyServiceImplTest {
     @Test
     @DisplayName("Should create company, link to admin, and send welcome email")
     void create_success() {
+
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
         when(companyRepository.existsByNameIgnoreCase("Acme")).thenReturn(false);
         when(companyMapper.toEntity(request)).thenReturn(company);
         when(companyRepository.save(company)).thenReturn(company);
@@ -95,6 +97,8 @@ class CompanyServiceImplTest {
     @Test
     @DisplayName("Should throw DuplicateResourceException when company name already exists")
     void create_duplicateName() {
+
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
         when(companyRepository.existsByNameIgnoreCase("Acme")).thenReturn(true);
 
         assertThatThrownBy(() -> companyService.create(request, adminUser))
@@ -111,6 +115,7 @@ class CompanyServiceImplTest {
         existing.setId("existing-company-id");
         existing.setName("Existing Co");
         adminUser.setCompany(existing);
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
 
         assertThatThrownBy(() -> companyService.create(request, adminUser))
                 .isInstanceOf(DuplicateResourceException.class)
@@ -125,6 +130,8 @@ class CompanyServiceImplTest {
     @DisplayName("Should update company when called by its admin owner")
     void update_success() {
         adminUser.setCompany(company);
+
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
         when(companyRepository.findById("company-id")).thenReturn(Optional.of(company));
         when(companyRepository.save(company)).thenReturn(company);
         when(companyMapper.toResponse(company)).thenReturn(new CompanyResponse("company-id", "Acme", "Tech", null, null, null));
@@ -160,6 +167,7 @@ class CompanyServiceImplTest {
     @DisplayName("Should delete company when called by its admin owner")
     void delete_success() {
         adminUser.setCompany(company);
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
         when(companyRepository.findById("company-id")).thenReturn(Optional.of(company));
 
         companyService.delete("company-id", adminUser);
@@ -183,6 +191,7 @@ class CompanyServiceImplTest {
     void getMyCompany_admin_success() {
         adminUser.setCompany(company);
         CompanyResponse expectedResponse = new CompanyResponse("company-id", "Acme", null, null, null, null);
+        when(companyRepository.findById(company.getId())).thenReturn(Optional.of(company));
         when(companyMapper.toResponse(company)).thenReturn(expectedResponse);
 
         CompanyResponse response = companyService.getMyCompany(adminUser);
@@ -195,6 +204,7 @@ class CompanyServiceImplTest {
     void getMyCompany_hiringManager_success() {
         hiringManagerUser.setCompany(company);
         CompanyResponse expectedResponse = new CompanyResponse("company-id", "Acme", null, null, null, null);
+        when(companyRepository.findById(company.getId())).thenReturn(Optional.of(company));
         when(companyMapper.toResponse(company)).thenReturn(expectedResponse);
 
         CompanyResponse response = companyService.getMyCompany(hiringManagerUser);
