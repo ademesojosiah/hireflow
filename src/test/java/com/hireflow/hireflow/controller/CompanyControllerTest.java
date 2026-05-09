@@ -23,8 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
-import static org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,7 +70,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Acme", "Tech", "https://acme.io", null, "1-50");
 
         mockMvc.perform(post("/api/v1/companies")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -89,7 +88,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Acme", "Tech", "https://acme.io", null, "1-50");
 
         mockMvc.perform(post("/api/v1/companies")
-                        .with(authentication(authenticated(principalFor(applicantUser), null, principalFor(applicantUser).getAuthorities())))
+                        .with(user(principalFor(applicantUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -110,7 +109,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Brand New", "Tech", "https://brand.io", null, "1-50");
 
         mockMvc.perform(post("/api/v1/companies")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
@@ -129,7 +128,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Acme", "Tech", null, null, null);
 
         mockMvc.perform(post("/api/v1/companies")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict());
@@ -148,7 +147,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Acme Inc", "Software", null, null, "50-100");
 
         mockMvc.perform(put("/api/v1/companies/" + company.getId())
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -165,7 +164,7 @@ class CompanyControllerTest {
         CompanyRequest request = new CompanyRequest("Acme Inc", null, null, null, null);
 
         mockMvc.perform(put("/api/v1/companies/" + company.getId())
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -179,7 +178,7 @@ class CompanyControllerTest {
         company = companyRepository.save(company);
 
         mockMvc.perform(get("/api/v1/companies/" + company.getId())
-                        .with(authentication(authenticated(principalFor(applicantUser), null, principalFor(applicantUser).getAuthorities()))))
+                .with(user(principalFor(applicantUser))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Acme"));
     }
@@ -196,7 +195,7 @@ class CompanyControllerTest {
         userRepository.save(adminUser);
 
         mockMvc.perform(get("/api/v1/companies/me")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities()))))
+                .with(user(principalFor(adminUser))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.name").value("Acme"))
@@ -214,7 +213,7 @@ class CompanyControllerTest {
         userRepository.save(hiringManagerUser);
 
         mockMvc.perform(get("/api/v1/companies/me")
-                        .with(authentication(authenticated(principalFor(hiringManagerUser), null, principalFor(hiringManagerUser).getAuthorities()))))
+                .with(user(principalFor(hiringManagerUser))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Beta Corp"));
     }
@@ -223,7 +222,7 @@ class CompanyControllerTest {
     @DisplayName("Should return 403 when applicant tries to access their company")
     void getMyCompany_applicant_forbidden() throws Exception {
         mockMvc.perform(get("/api/v1/companies/me")
-                        .with(authentication(authenticated(principalFor(applicantUser), null, principalFor(applicantUser).getAuthorities()))))
+                .with(user(principalFor(applicantUser))))
                 .andExpect(status().isForbidden());
     }
 
@@ -231,7 +230,7 @@ class CompanyControllerTest {
     @DisplayName("Should return 404 when admin has no company")
     void getMyCompany_noCompany() throws Exception {
         mockMvc.perform(get("/api/v1/companies/me")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities()))))
+                .with(user(principalFor(adminUser))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Company not found for the user")));
     }

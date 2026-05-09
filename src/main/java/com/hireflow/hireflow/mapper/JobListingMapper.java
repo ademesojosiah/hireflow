@@ -5,6 +5,7 @@ import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.JobListingSkill;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.dto.response.SkillResponse;
 import com.hireflow.hireflow.enums.JobStatus;
@@ -45,8 +46,30 @@ public class JobListingMapper {
         return response;
     }
 
+    public JobListingFilterResponse toJobListingFilterResponse(JobListing job) {
+        JobListingFilterResponse response = modelMapper.map(job, JobListingFilterResponse.class);
+        if (job.getCompany() != null) {
+            response.setCompanyId(job.getCompany().getId());
+            response.setCompanyName(job.getCompany().getName());
+        }
+        response.setSkills(job.getSkills() == null ? List.of()
+                : job.getSkills().stream()
+                .map(jls -> new SkillResponse(jls.getSkill().getId(), jls.getSkill().getName()))
+                .toList());
+        return response;
+    }
+
     public void applyUpdate(JobListing job, JobListingRequest request, List<Skill> skills) {
-        modelMapper.map(request, job);
+        if (request.getTitle() != null) job.setTitle(request.getTitle());
+        if (request.getType() != null) job.setType(request.getType());
+        if (request.getLocation() != null) job.setLocation(request.getLocation());
+        if (request.getSummary() != null) job.setSummary(request.getSummary());
+        if (request.getResponsibilities() != null) job.setResponsibilities(request.getResponsibilities());
+        if (request.getRequiredQualifications() != null) job.setRequiredQualifications(request.getRequiredQualifications());
+        if (request.getPreferredQualifications() != null) job.setPreferredQualifications(request.getPreferredQualifications());
+        if (request.getStatus() != null) job.setStatus(request.getStatus());
+        if (request.getAutoRejectThreshold() != null) job.setAutoRejectThreshold(request.getAutoRejectThreshold());
+        if (request.getAutoPassThreshold() != null) job.setAutoPassThreshold(request.getAutoPassThreshold());
         if (skills != null) {
             job.getSkills().clear();
             attachSkills(job, skills);

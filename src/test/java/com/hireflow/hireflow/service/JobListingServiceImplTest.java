@@ -6,6 +6,7 @@ import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
@@ -108,6 +109,14 @@ class JobListingServiceImplTest {
                 "Join us to build APIs", "Design, build, and ship high-quality REST APIs.",
                 "5+ years Java, Spring Boot, MySQL.", "Experience with Kafka and AWS.",
                 JobStatus.OPEN, 30, 80, "company-1", "Acme", List.of());
+    }
+
+    private JobListingFilterResponse sampleJobListingFilterResponse() {
+        return new JobListingFilterResponse(
+                "job-1", "Java Dev", JobType.FULL_TIME, "Remote",
+                "Join us to build APIs", "Design, build, and ship high-quality REST APIs.",
+                "5+ years Java, Spring Boot, MySQL.", "Experience with Kafka and AWS.",
+                JobStatus.OPEN, "company-1", "Acme", List.of());
     }
 
     private JobListingRequest fullStackEngineerRequest(Set<String> skillIds) {
@@ -364,6 +373,21 @@ class JobListingServiceImplTest {
         assertThat(result.getContent()).hasSize(1);
         verify(jobListingRepository).findAllByCompany_IdAndStatus("company-1", JobStatus.OPEN, pageable);
         verify(jobListingRepository, never()).findAllByCompany_Id(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should return open job listings filtered by title and job type")
+    void findAllOpen_filteredByTitleAndType() {
+        Pageable pageable = PageRequest.of(0, 10);
+        Page<JobListing> page = new PageImpl<>(List.of(job), pageable, 1);
+        when(jobListingRepository.findAllOpen("Engineer", JobType.FULL_TIME, pageable)).thenReturn(page);
+        when(jobListingMapper.toJobListingFilterResponse(job)).thenReturn(sampleJobListingFilterResponse());
+
+        Page<JobListingFilterResponse> result = jobListingService.findAllOpen("  Engineer  ", JobType.FULL_TIME, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(jobListingRepository).findAllOpen("Engineer", JobType.FULL_TIME, pageable);
+        verify(jobListingRepository, never()).findAllByStatus(any(), any());
     }
 
     @Test

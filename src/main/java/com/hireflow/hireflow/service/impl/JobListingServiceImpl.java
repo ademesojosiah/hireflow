@@ -6,8 +6,10 @@ import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
+import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
@@ -92,9 +94,18 @@ public class JobListingServiceImpl implements JobListingService {
     }
 
     @Override
-    public Page<JobListingResponse> findAllOpen(Pageable pageable) {
-        return jobListingRepository.findAllByStatus(JobStatus.OPEN, pageable)
-                .map(jobListingMapper::toResponse);
+    public Page<JobListingResponse> findByCompany(JobStatus status,  User user, Pageable pageable) {
+        Company company = requireCompanyManager(user);
+        String companyId = company.getId();
+        Page<JobListing> page = (status == null)
+                ? jobListingRepository.findAllByCompany_Id(companyId, pageable)
+                : jobListingRepository.findAllByCompany_IdAndStatus(companyId, status, pageable);
+        return page.map(jobListingMapper::toResponse);
+    }
+    @Override
+    public Page<JobListingFilterResponse> findAllOpen(String title, JobType type, Pageable pageable) {
+        return jobListingRepository.findAllOpen(normalizeFilter(title), type, pageable)
+                .map(jobListingMapper::toJobListingFilterResponse);
     }
 
     @Override
@@ -143,5 +154,12 @@ public class JobListingServiceImpl implements JobListingService {
             return List.of();
         }
         return skillService.findAllByIds(ids);
+    }
+
+    private String normalizeFilter(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

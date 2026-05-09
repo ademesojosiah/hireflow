@@ -4,6 +4,7 @@ import com.hireflow.hireflow.dto.request.JobListingRequest;
 import com.hireflow.hireflow.dto.response.ApiResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
+import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.security.UserPrincipal;
 import com.hireflow.hireflow.service.JobListingService;
 import jakarta.validation.Valid;
@@ -55,13 +56,26 @@ public class JobListingController {
                 jobListingService.findByCompany(companyId, status, PageRequest.of(page, size))));
     }
 
+    @GetMapping("/company")
+    public ResponseEntity<?> findByMyCompany(
+            @RequestParam(required = false) JobStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Job listings retrieved",
+                jobListingService.findByCompany(status,userPrincipal.getUser(), PageRequest.of(page, size))));
+    }
+
     @GetMapping
     public ResponseEntity<?> findAllOpen(
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) JobType type,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Open job listings retrieved",
-                jobListingService.findAllOpen(PageRequest.of(page, size))));
+                jobListingService.findAllOpen(title, type, PageRequest.of(page, size))));
     }
 
     @DeleteMapping("/{id}")

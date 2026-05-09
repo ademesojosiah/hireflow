@@ -69,60 +69,201 @@ Key conventions:
 
 ### Entity Relationship Diagram (Current v3.0 State)
 
+> **MAINTENANCE RULE**: This ERD MUST be updated whenever an entity is added, removed, or its fields/relationships change. Drift between the diagram and the code is treated as a bug.
+
+#### Visual ERD (Mermaid)
+
+```mermaid
+erDiagram
+    BaseEntity {
+        String id PK "UUID"
+        Instant createdAt "auto, immutable"
+        Instant updatedAt "auto"
+    }
+
+    Company {
+        String id PK "UUID"
+        String name UK "unique, indexed"
+        String description "max 1000"
+        String industry "nullable"
+        String website "nullable"
+        String logoUrl "nullable"
+        String companySize "nullable"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    User {
+        String id PK "UUID"
+        String firstName "required"
+        String lastName "required"
+        String email UK "unique, required"
+        String password "BCrypt, JsonIgnored"
+        Role role "enum: APPLICANT|HMANAGER|ADMIN"
+        String company_id FK "nullable for APPLICANT"
+        String otp "nullable, 6-digit"
+        Instant otpExpiry "nullable, +10min from issue"
+        boolean verified "default false"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    JobListing {
+        String id PK "UUID"
+        String title "required, max 200"
+        JobType type "enum: FULL_TIME|PART_TIME|CONTRACT|INTERNSHIP|REMOTE"
+        String location "nullable"
+        String summary "TEXT, required"
+        String responsibilities "TEXT, required"
+        String requiredQualifications "TEXT, required"
+        String preferredQualifications "TEXT, nullable"
+        JobStatus status "enum: DRAFT|OPEN|PAUSED|CLOSED|FILLED, default DRAFT"
+        Integer autoRejectThreshold "0-100, required"
+        Integer autoPassThreshold "0-100, required, GT autoReject"
+        String company_id FK "required, indexed"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    JobListingSkill {
+        String id PK "UUID"
+        String job_listing_id FK "required, indexed"
+        String skill_id FK "required, indexed"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    Skill {
+        String id PK "UUID"
+        String name UK "unique, indexed, max 150"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    Company ||--o{ JobListing : "owns (1:N, cascade ALL, orphanRemoval)"
+    Company ||--o| User : "employs (1:1 via company_id, nullable for APPLICANT)"
+    JobListing ||--o{ JobListingSkill : "has (1:N, cascade ALL, orphanRemoval)"
+    Skill ||--o{ JobListingSkill : "appears in (1:N)"
+    BaseEntity ||--|| Company : "extends"
+    BaseEntity ||--|| User : "extends"
+    BaseEntity ||--|| JobListing : "extends"
+    BaseEntity ||--|| JobListingSkill : "extends"
+    BaseEntity ||--|| Skill : "extends"
 ```
-┌─────────────┐
-│   Company   │ (root tenant entity)
-│  (id, PK)   │
-│  name, etc. │
-└──────┬──────┘
-       │
-       │ 1:N (owns)
-       │
-┌──────▼──────────────────────┐
-│      JobListing             │
-│  (id, PK, company_id, FK)   │
-│  title, type, location      │
-│  summary, responsibilities  │
-│  qualifications, status     │
-│  autoReject/PassThreshold   │
-└──────┬──────────────────────┘
-       │
-       │ 1:N (mapped via join table)
-       │
-┌──────▼────────────────────────┐
-│   JobListingSkill (Join)       │
-│  (job_listing_id, skill_id)    │
-│  @UniqueConstraint enforced    │
-│  cascade=ALL, orphanRemoval    │
-└──────┬────────────────────────┘
-       │
-       │ N:1
-       │
-┌──────▼──────────────────────┐
-│        Skill                 │
-│  (id, PK)                    │
-│  name (unique, indexed)      │
-│  lookup table for all skills │
-└─────────────────────────────┘
 
-┌────────────────────┐
-│       User         │ (multi-tenant)
-│  (id, PK)          │
-│  role (enum)       │
-│  company_id (FK)   │
-│  verified (bool)   │
-│  email (unique)    │
-└────────────────────┘
-       │
-       │ M:1
-       │
-    (belongs to Company)
+#### Detailed Entity Reference
 
-All entities extend BaseEntity (UUID id, createdAt, updatedAt).
-Future entities: Application, ResumeProfile, AIScreeningResult, InterviewSlot, StageUpdate.
+**`BaseEntity`** *(MappedSuperclass — not a table)*
+- All entities inherit: `id` (UUID, PK), `createdAt` (Instant, auto, immutable), `updatedAt` (Instant, auto)
 
-NOTE: This diagram is maintained as entities evolve. Update immediately when adding/removing fields or relationships.
-```
+---
+
+**`companies`** — root tenant entity
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `name` | VARCHAR | UNIQUE, NOT NULL, indexed (`idx_company_name`) | tenant identifier |
+| `description` | VARCHAR(1000) | nullable | |
+| `industry` | VARCHAR | nullable | e.g., "Tech", "Finance" |
+| `website` | VARCHAR | nullable | URL |
+| `logoUrl` | VARCHAR | nullable | URL |
+| `companySize` | VARCHAR | nullable | e.g., "1-50", "50-100" |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Relationships:
+- `Company 1 ──< JobListing` (`@OneToMany`, `mappedBy="company"`, cascade ALL, orphanRemoval)
+- `User many ─> Company` (FK on `User.company_id`)
+
+---
+
+**`users`** — RBAC subject
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `firstName` | VARCHAR | NOT NULL | |
+| `lastName` | VARCHAR | NOT NULL | |
+| `email` | VARCHAR | UNIQUE, NOT NULL | login identifier |
+| `password` | VARCHAR | NOT NULL, `@JsonIgnore` | BCrypt hash |
+| `role` | ENUM (STRING) | NOT NULL | `APPLICANT`, `HMANAGER`, `ADMIN` |
+| `company_id` | UUID | FK → `companies.id`, nullable | `APPLICANT` may be null |
+| `otp` | VARCHAR | nullable | 6-digit verification code |
+| `otpExpiry` | TIMESTAMP | nullable | issued + 10 minutes |
+| `verified` | BOOLEAN | NOT NULL, default `false` | gates login |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Relationships:
+- `User many ─> Company` (`@OneToOne(fetch=LAZY)`, `@JoinColumn(name="company_id", nullable=true)`)
+- Note: `Company` does NOT hold a back-reference to `User`
+
+---
+
+**`job_listings`** — postings owned by a Company
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `title` | VARCHAR | NOT NULL | |
+| `type` | ENUM (STRING) | NOT NULL | `FULL_TIME`, `PART_TIME`, `CONTRACT`, `INTERNSHIP`, `REMOTE` |
+| `location` | VARCHAR | nullable | |
+| `summary` | TEXT | NOT NULL | long-form pitch |
+| `responsibilities` | TEXT | NOT NULL | long-form |
+| `requiredQualifications` | TEXT | NOT NULL | long-form |
+| `preferredQualifications` | TEXT | nullable | long-form |
+| `status` | ENUM (STRING) | NOT NULL, default `DRAFT` | `DRAFT`, `OPEN`, `PAUSED`, `CLOSED`, `FILLED` |
+| `autoRejectThreshold` | INT | NOT NULL | 0–100 |
+| `autoPassThreshold` | INT | NOT NULL | 0–100, must be `>` autoRejectThreshold (service-validated) |
+| `company_id` | UUID | FK → `companies.id`, NOT NULL, `@JsonIgnore` | tenant FK |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Indexes: `idx_job_company` on `company_id`, `idx_job_status` on `status`
+
+Relationships:
+- `JobListing many ─> Company` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
+- `JobListing 1 ──< JobListingSkill` (`@OneToMany`, `mappedBy="jobListing"`, cascade ALL, orphanRemoval)
+
+---
+
+**`job_listing_skills`** — manual join table (NOT `@ManyToMany`)
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `job_listing_id` | UUID | FK → `job_listings.id`, NOT NULL, `@JsonIgnore` | back-reference |
+| `skill_id` | UUID | FK → `skills.id`, NOT NULL | |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `UNIQUE (job_listing_id, skill_id)` — `uk_jls_job_skill` (no duplicate skill links)
+Indexes: `idx_jls_job` on `job_listing_id`, `idx_jls_skill` on `skill_id`
+
+Relationships:
+- `JobListingSkill many ─> JobListing` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
+- `JobListingSkill many ─> Skill` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
+
+---
+
+**`skills`** — global lookup table
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `name` | VARCHAR(150) | UNIQUE, NOT NULL, indexed (`idx_skill_name`) | case-insensitive unique via `findByNameIgnoreCase` |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Relationships:
+- `Skill 1 ──< JobListingSkill` (referenced by join table)
+- *(Future)* `Skill <─> Application`, `Skill <─> ResumeProfile` via additional join tables
+
+---
+
+#### Cardinality Summary
+
+| Relationship | Cardinality | Owning Side | Cascade |
+|---|---|---|---|
+| Company → JobListing | 1 : N | `JobListing.company` | ALL, orphanRemoval |
+| Company → User | 1 : 0..1 (per current code) | `User.company` | none |
+| JobListing → JobListingSkill | 1 : N | `JobListingSkill.jobListing` | ALL, orphanRemoval |
+| Skill → JobListingSkill | 1 : N | `JobListingSkill.skill` | none (skills outlive job links) |
+
+#### Planned Entities (v3.1+)
+
+`Application`, `ResumeProfile`, `Education`, `WorkExperience`, `AIScreeningResult`, `InterviewSlot`, `StageUpdate` —
 
 
 ---

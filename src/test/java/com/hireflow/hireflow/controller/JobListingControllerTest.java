@@ -32,8 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -110,7 +109,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 30, 80, null);
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -130,7 +129,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 30, 80, Set.of(java.getId(), spring.getId()));
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -159,7 +158,7 @@ class JobListingControllerTest {
         );
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -192,7 +191,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 30, 80, Set.of(java.getId(), "skill-does-not-exist"));
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
@@ -206,7 +205,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 30, 80, null);
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(applicant), null, principalFor(applicant).getAuthorities())))
+                        .with(user(principalFor(applicant)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -220,7 +219,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 80, 80, null);
 
         mockMvc.perform(post("/api/v1/jobs")
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
@@ -245,7 +244,7 @@ class JobListingControllerTest {
         JobListingRequest request = sampleRequest(JobStatus.OPEN, 30, 80, null);
 
         mockMvc.perform(put("/api/v1/jobs/" + job.getId())
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities())))
+                        .with(user(principalFor(hManager)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -284,7 +283,7 @@ class JobListingControllerTest {
         mockMvc.perform(get("/api/v1/jobs/company/" + company.getId())
                         .param("page", "0")
                         .param("size", "1")
-                        .with(authentication(authenticated(principalFor(applicant), null, principalFor(applicant).getAuthorities()))))
+                .with(user(principalFor(applicant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
@@ -308,7 +307,7 @@ class JobListingControllerTest {
         jobListingRepository.save(job);
 
         mockMvc.perform(get("/api/v1/jobs/company/" + company.getId())
-                        .with(authentication(authenticated(principalFor(applicant), null, principalFor(applicant).getAuthorities()))))
+                .with(user(principalFor(applicant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.size").value(10))
                 .andExpect(jsonPath("$.data.number").value(0))
@@ -316,10 +315,60 @@ class JobListingControllerTest {
     }
 
     @Test
+    @DisplayName("Should filter open job listings by title and job type")
+    void findAllOpen_filteredByTitleAndType() throws Exception {
+        JobListing matching = new JobListing();
+        matching.setTitle("Full Stack Engineer");
+        matching.setType(JobType.FULL_TIME);
+        matching.setSummary("Full stack role summary");
+        matching.setResponsibilities("Build product features");
+        matching.setRequiredQualifications("Java and React experience");
+        matching.setStatus(JobStatus.OPEN);
+        matching.setAutoRejectThreshold(20);
+        matching.setAutoPassThreshold(70);
+        matching.setCompany(company);
+        jobListingRepository.save(matching);
+
+        JobListing wrongType = new JobListing();
+        wrongType.setTitle("Full Stack Contractor");
+        wrongType.setType(JobType.CONTRACT);
+        wrongType.setSummary("Contract role summary");
+        wrongType.setResponsibilities("Build contract features");
+        wrongType.setRequiredQualifications("Java and React experience");
+        wrongType.setStatus(JobStatus.OPEN);
+        wrongType.setAutoRejectThreshold(20);
+        wrongType.setAutoPassThreshold(70);
+        wrongType.setCompany(company);
+        jobListingRepository.save(wrongType);
+
+        JobListing closedMatch = new JobListing();
+        closedMatch.setTitle("Full Stack Engineer Closed");
+        closedMatch.setType(JobType.FULL_TIME);
+        closedMatch.setSummary("Closed role summary");
+        closedMatch.setResponsibilities("Build internal tools");
+        closedMatch.setRequiredQualifications("Java and React experience");
+        closedMatch.setStatus(JobStatus.CLOSED);
+        closedMatch.setAutoRejectThreshold(20);
+        closedMatch.setAutoPassThreshold(70);
+        closedMatch.setCompany(company);
+        jobListingRepository.save(closedMatch);
+
+        mockMvc.perform(get("/api/v1/jobs")
+                        .param("title", "stack")
+                        .param("type", "FULL_TIME")
+                .with(user(principalFor(applicant))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].title").value("Full Stack Engineer"))
+                .andExpect(jsonPath("$.data.content[0].type").value("FULL_TIME"))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
     @DisplayName("Should return 404 when fetching a non-existent job listing")
     void findById_notFound() throws Exception {
         mockMvc.perform(get("/api/v1/jobs/missing-id")
-                        .with(authentication(authenticated(principalFor(applicant), null, principalFor(applicant).getAuthorities()))))
+                .with(user(principalFor(applicant))))
                 .andExpect(status().isNotFound());
     }
 
@@ -339,7 +388,7 @@ class JobListingControllerTest {
         job = jobListingRepository.save(job);
 
         mockMvc.perform(delete("/api/v1/jobs/" + job.getId())
-                        .with(authentication(authenticated(principalFor(hManager), null, principalFor(hManager).getAuthorities()))))
+                .with(user(principalFor(hManager))))
                 .andExpect(status().isOk());
 
         assertThat(jobListingRepository.findById(job.getId())).isEmpty();

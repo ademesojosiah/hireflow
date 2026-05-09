@@ -23,8 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -78,7 +77,7 @@ class SkillControllerTest {
         SkillRequest request = new SkillRequest("  Scala  ");
 
         mockMvc.perform(post("/api/v1/skills")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -95,7 +94,7 @@ class SkillControllerTest {
         SkillRequest request = new SkillRequest("scala");
 
         mockMvc.perform(post("/api/v1/skills")
-                        .with(authentication(authenticated(principalFor(adminUser), null, principalFor(adminUser).getAuthorities())))
+                        .with(user(principalFor(adminUser)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
@@ -111,7 +110,7 @@ class SkillControllerTest {
 
         mockMvc.perform(get("/api/v1/skills/search")
                         .param("query", "zed")
-                        .with(authentication(authenticated(principalFor(applicantUser), null, principalFor(applicantUser).getAuthorities()))))
+                .with(user(principalFor(applicantUser))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.length()").value(2))
@@ -124,7 +123,7 @@ class SkillControllerTest {
     void search_tooShort() throws Exception {
         mockMvc.perform(get("/api/v1/skills/search")
                         .param("query", "ze")
-                        .with(authentication(authenticated(principalFor(applicantUser), null, principalFor(applicantUser).getAuthorities()))))
+                .with(user(principalFor(applicantUser))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
     }
