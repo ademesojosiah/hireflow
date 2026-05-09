@@ -1,5 +1,6 @@
 package com.hireflow.hireflow.data.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hireflow.hireflow.enums.Role;
 import jakarta.persistence.*;
 import lombok.*;
@@ -23,6 +24,7 @@ public class User extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String email;
 
+    @JsonIgnore
     @Column(nullable = false)
     private String password;
 
@@ -30,8 +32,10 @@ public class User extends BaseEntity {
     @Column(nullable = false)
     private Role role;
 
-    @Column
-    private String companyId;
+    @JsonIgnore
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id", nullable = true)
+    private Company company;
 
     @Column
     private String otp;
@@ -41,7 +45,6 @@ public class User extends BaseEntity {
 
     @Column(nullable = false)
     private boolean verified = false;
-
 
     public User(String firstName, String lastName, String email, String password, Role role, boolean verified) {
         this.firstName = firstName;
