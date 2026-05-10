@@ -22,6 +22,10 @@ public class CompanyMapper {
     }
 
     public void applyUpdate(Company company, CompanyRequest request) {
-        modelMapper.map(request, company);
+        if (request.getName() != null) company.setName(request.getName());
+        if (request.getIndustry() != null) company.setIndustry(request.getIndustry());
+        if (request.getWebsite() != null) company.setWebsite(request.getWebsite());
+        if (request.getLogoUrl() != null) company.setLogoUrl(request.getLogoUrl());
+        if (request.getCompanySize() != null) company.setCompanySize(request.getCompanySize());
     }
 }
