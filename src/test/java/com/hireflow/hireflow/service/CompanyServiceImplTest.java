@@ -9,6 +9,7 @@ import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.CompanyMapper;
+import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.impl.CompanyServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -1,7 +1,7 @@
-package com.hireflow.hireflow.service.impl;
+package com.hireflow.hireflow.service.email.impl;
 
 import com.hireflow.hireflow.exception.CustomException;
-import com.hireflow.hireflow.service.EmailService;
+import com.hireflow.hireflow.service.email.EmailService;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -91,4 +91,3 @@ public class EmailServiceImpl implements EmailService {
                 """.formatted(otp);
     }
 }
-

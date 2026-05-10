@@ -11,7 +11,7 @@ import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.CompanyMapper;
 import com.hireflow.hireflow.service.CompanyService;
-import com.hireflow.hireflow.service.EmailService;
+import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
