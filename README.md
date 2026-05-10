@@ -147,6 +147,8 @@ erDiagram
         String phoneNumber "nullable, max 30"
         String linkedIn "nullable, max 300"
         String summary "TEXT, nullable"
+        String resumePdfUrl "nullable, max 2000 — Cloudinary secure_url"
+        String resumePublicId "nullable, max 500 — Cloudinary public_id"
         Instant createdAt
         Instant updatedAt
     }
@@ -310,6 +312,8 @@ Relationships:
 | `phoneNumber` | VARCHAR | nullable | max 30 chars |
 | `linkedIn` | VARCHAR | nullable | max 300 chars |
 | `summary` | TEXT | nullable | professional summary |
+| `resumePdfUrl` | VARCHAR(2000) | nullable | Cloudinary `secure_url` returned after direct upload |
+| `resumePublicId` | VARCHAR(500) | nullable | Cloudinary `public_id` — used to delete/replace the file |
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Constraints: `uk_resume_profile_user` on `user_id`
