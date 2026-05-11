@@ -36,8 +36,11 @@ public class ResumeProfile extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String summary;
 
-    @Column(length = 2000)
-    private String pdfUrl;
+    @Column
+    private String resumePdfUrl;
+
+    @Column
+    private String resumePublicId;
 
     @OneToMany(
             mappedBy = "resumeProfile",

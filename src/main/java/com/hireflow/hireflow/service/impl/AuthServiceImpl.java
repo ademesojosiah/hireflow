@@ -12,7 +12,7 @@ import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
 import com.hireflow.hireflow.service.AuthService;
-import com.hireflow.hireflow.service.EmailService;
+import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

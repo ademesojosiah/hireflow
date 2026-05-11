@@ -1,4 +1,4 @@
-package com.hireflow.hireflow.service;
+package com.hireflow.hireflow.service.email;
 
 public interface EmailService {
     void sendOtp(String to, String otp);
