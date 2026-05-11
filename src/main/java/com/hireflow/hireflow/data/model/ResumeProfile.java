@@ -36,6 +36,9 @@ public class ResumeProfile extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String summary;
 
+    @Column(length = 2000)
+    private String pdfUrl;
+
     @OneToMany(
             mappedBy = "resumeProfile",
             cascade = CascadeType.ALL,

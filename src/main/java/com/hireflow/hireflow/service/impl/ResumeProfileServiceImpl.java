@@ -40,14 +40,18 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
             User refreshed = requireApplicant(user);
             validateDates(request);
 
-            List<Skill> skills = request.getSkillIds() == null ? null
-                    : skillService.findAllByIds(request.getSkillIds());
+            List<Skill> skills = request.getSkillNames() == null ? null
+                    : skillService.findOrCreateByNames(request.getSkillNames());
 
             Optional<ResumeProfile> existing = resumeProfileRepository.findByUser_Id(refreshed.getId());
 
             ResumeProfile saved;
             if (existing.isPresent()) {
                 ResumeProfile profile = existing.get();
+                profile.getSkills().clear();
+                profile.getWorkExperiences().clear();
+                profile.getEducations().clear();
+                resumeProfileRepository.saveAndFlush(profile);
                 resumeProfileMapper.applyUpdate(profile, request, skills);
                 saved = resumeProfileRepository.save(profile);
             } else {
@@ -102,6 +106,25 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
         } catch (Exception ex) {
             log.error("Resume profile deletion failed: {}", ex.getMessage());
             throw new CustomException("Resume profile deletion failed: Internal Server Error");
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResumeProfileResponse updateResumePdfUrl(String pdfUrl, User user) {
+        try {
+            User refreshed = requireApplicant(user);
+            ResumeProfile profile = resumeProfileRepository.findByUser_Id(refreshed.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Resume profile not found"));
+            profile.setPdfUrl(pdfUrl);
+            ResumeProfile saved = resumeProfileRepository.save(profile);
+            return resumeProfileMapper.toResponse(saved);
+        } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
+            log.error(ex.getMessage());
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Failed to update resume PDF URL: {}", ex.getMessage());
+            throw new CustomException("Failed to update resume PDF URL: Internal Server Error");
         }
     }
 

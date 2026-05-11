@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/v1/resume-profiles")
 @RequiredArgsConstructor
@@ -42,5 +44,14 @@ public class ResumeProfileController {
     public ResponseEntity<?> deleteMyProfile(@AuthenticationPrincipal UserPrincipal userPrincipal) {
         resumeProfileService.deleteMyProfile(userPrincipal.getUser());
         return ResponseEntity.ok(ApiResponse.success("Resume profile deleted"));
+    }
+
+    @PatchMapping("/pdf-url")
+    public ResponseEntity<?> updateResumePdfUrl(
+            @RequestBody Map<String, String> request,
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        String pdfUrl = request.get("pdfUrl");
+        ResumeProfileResponse updated = resumeProfileService.updateResumePdfUrl(pdfUrl, userPrincipal.getUser());
+        return ResponseEntity.ok(ApiResponse.success("Resume PDF URL updated", updated));
     }
 }

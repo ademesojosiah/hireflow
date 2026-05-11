@@ -15,6 +15,7 @@ public class WorkExperienceResponse {
 
     private String id;
     private String companyName;
+    private String jobTitle;
     private LocalDate startDate;
     private LocalDate endDate;
     private String experience;

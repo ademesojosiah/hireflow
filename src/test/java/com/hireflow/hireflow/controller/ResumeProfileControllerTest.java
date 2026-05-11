@@ -78,20 +78,22 @@ class ResumeProfileControllerTest {
         return skillRepository.save(skill);
     }
 
-    private ResumeProfileRequest sampleRequest(Set<String> skillIds) {
+    private ResumeProfileRequest sampleRequest(List<String> skillNames) {
         return new ResumeProfileRequest(
                 "+2348012345678",
                 "https://linkedin.com/in/johndoe",
                 "Backend engineer with 5+ years experience.",
-                skillIds,
+                skillNames,
                 List.of(
                         new WorkExperienceRequest(
                                 "Cognetik Technologies",
+                                "Backend Engineer",
                                 LocalDate.of(2022, 3, 1),
                                 null,
                                 "<p>Built scalable REST APIs.</p>"),
                         new WorkExperienceRequest(
                                 "Tech Solutions Ltd",
+                                "Software Developer",
                                 LocalDate.of(2020, 1, 1),
                                 LocalDate.of(2022, 2, 1),
                                 "<p>Worked on frontend.</p>")
@@ -109,7 +111,7 @@ class ResumeProfileControllerTest {
     void upsert_create() throws Exception {
         Skill java = saveSkill("Java");
         Skill spring = saveSkill("Spring Boot");
-        ResumeProfileRequest request = sampleRequest(Set.of(java.getId(), spring.getId()));
+        ResumeProfileRequest request = sampleRequest(List.of(java.getName(), spring.getName()));
 
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
@@ -132,12 +134,12 @@ class ResumeProfileControllerTest {
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(sampleRequest(Set.of(java.getId())))))
+                        .content(objectMapper.writeValueAsString(sampleRequest(List.of(java.getName())))))
                 .andExpect(status().isOk());
 
         ResumeProfileRequest replacement = new ResumeProfileRequest(
                 "+447000000000", "https://linkedin.com/in/updated", "Updated summary.",
-                Set.of(), List.of(), List.of());
+                List.of(), List.of(), List.of());
 
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
@@ -172,19 +174,22 @@ class ResumeProfileControllerTest {
     }
 
     @Test
-    @DisplayName("Should return 404 when a supplied skillId does not exist")
-    void upsert_unknownSkillId() throws Exception {
+    @DisplayName("Should create skills if they don't exist")
+    void upsert_createSkills() throws Exception {
         Skill java = saveSkill("Java");
-        ResumeProfileRequest request = sampleRequest(Set.of(java.getId(), "skill-does-not-exist"));
+        ResumeProfileRequest request = sampleRequest(List.of(java.getName(), "New Skill"));
 
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.skills.length()").value(2));
 
-        assertThat(resumeProfileRepository.findAll()).isEmpty();
+        assertThat(skillRepository.findAll()).hasSize(2);
+        assertThat(skillRepository.findByNameIgnoreCase("New Skill")).isPresent();
     }
+
 
     @Test
     @DisplayName("Should return 400 when work-experience end date precedes start date")
@@ -193,6 +198,7 @@ class ResumeProfileControllerTest {
                 null, null, null, null,
                 List.of(new WorkExperienceRequest(
                         "Acme",
+                        "Engineer",
                         LocalDate.of(2022, 5, 1),
                         LocalDate.of(2022, 1, 1),
                         "x")),
@@ -212,7 +218,7 @@ class ResumeProfileControllerTest {
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(sampleRequest(Set.of(java.getId())))))
+                        .content(objectMapper.writeValueAsString(sampleRequest(List.of(java.getName())))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/v1/resume-profiles/user/" + applicant.getId())

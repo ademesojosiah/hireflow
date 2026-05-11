@@ -20,6 +20,9 @@ public class WorkExperienceRequest {
     @Size(max = 200)
     private String companyName;
 
+    @Size(max = 200)
+    private String jobTitle;
+
     @NotNull(message = "Start date is required")
     private LocalDate startDate;
 

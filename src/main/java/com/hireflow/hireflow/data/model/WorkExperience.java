@@ -28,6 +28,9 @@ public class WorkExperience extends BaseEntity {
     @Column(nullable = false)
     private String companyName;
 
+    @Column
+    private String jobTitle;
+
     @Column(nullable = false)
     private LocalDate startDate;
 

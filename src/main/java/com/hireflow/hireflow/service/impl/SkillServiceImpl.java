@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -87,6 +88,42 @@ public class SkillServiceImpl implements SkillService {
             throw new ResourceNotFoundException("One or more skills not found");
         }
         return found;
+    }
+
+    @Override
+    @Transactional
+    public List<Skill> findOrCreateByNames(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> normalizedNames = names.stream()
+                .map(this::normalizeName)
+                .filter(name -> !name.isBlank())
+                .distinct()
+                .toList();
+
+        List<Skill> existingSkills = skillRepository.findAllByNameIgnoreCaseIn(normalizedNames);
+
+        List<String> existingNames = existingSkills.stream()
+                .map(skill -> normalizeName(skill.getName()))
+                .toList();
+
+        List<Skill> missingSkills = normalizedNames.stream()
+                .filter(name -> !existingNames.contains(name))
+                .map(name -> {
+                    Skill skill = new Skill();
+                    skill.setName(name);
+                    return skill;
+                })
+                .toList();
+
+        if (!missingSkills.isEmpty()) {
+            List<Skill> saved = skillRepository.saveAll(missingSkills);
+            existingSkills.addAll(saved);
+        }
+
+        return existingSkills;
     }
 
     @Override

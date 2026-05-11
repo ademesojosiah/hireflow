@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.util.List;
-import java.util.Set;
 
 @Getter
 @Setter
@@ -25,7 +24,7 @@ public class ResumeProfileRequest {
     @Size(max = 5000)
     private String summary;
 
-    private Set<String> skillIds;
+    private List<String> skillNames;
 
     @Valid
     private List<WorkExperienceRequest> workExperiences;

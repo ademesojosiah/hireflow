@@ -37,30 +37,12 @@ public class ResumeProfileMapper {
     }
 
     public void applyUpdate(ResumeProfile profile, ResumeProfileRequest request, List<Skill> skills) {
-        if (request.getPhoneNumber() != null) {
-            profile.setPhoneNumber(request.getPhoneNumber());
-        }
-        if (request.getLinkedIn() != null) {
-            profile.setLinkedIn(request.getLinkedIn());
-        }
-        if (request.getSummary() != null) {
-            profile.setSummary(request.getSummary());
-        }
-
-        if (skills != null) {
-            profile.getSkills().clear();
-            attachSkills(profile, skills);
-        }
-
-        if (request.getWorkExperiences() != null) {
-            profile.getWorkExperiences().clear();
-            attachWorkExperiences(profile, request.getWorkExperiences());
-        }
-
-        if (request.getEducations() != null) {
-            profile.getEducations().clear();
-            attachEducations(profile, request.getEducations());
-        }
+        profile.setPhoneNumber(request.getPhoneNumber());
+        profile.setLinkedIn(request.getLinkedIn());
+        profile.setSummary(request.getSummary());
+        attachSkills(profile, skills);
+        attachWorkExperiences(profile, request.getWorkExperiences());
+        attachEducations(profile, request.getEducations());
     }
 
     public ResumeProfileResponse toResponse(ResumeProfile profile) {
@@ -69,6 +51,7 @@ public class ResumeProfileMapper {
         response.setPhoneNumber(profile.getPhoneNumber());
         response.setLinkedIn(profile.getLinkedIn());
         response.setSummary(profile.getSummary());
+        response.setPdfUrl(profile.getPdfUrl());
 
         User user = profile.getUser();
         if (user != null) {
@@ -112,6 +95,7 @@ public class ResumeProfileMapper {
             WorkExperience experience = new WorkExperience();
             experience.setResumeProfile(profile);
             experience.setCompanyName(req.getCompanyName());
+            experience.setJobTitle(req.getJobTitle());
             experience.setStartDate(req.getStartDate());
             experience.setEndDate(req.getEndDate());
             experience.setExperience(req.getExperience());
@@ -136,6 +120,7 @@ public class ResumeProfileMapper {
         WorkExperienceResponse response = new WorkExperienceResponse();
         response.setId(experience.getId());
         response.setCompanyName(experience.getCompanyName());
+        response.setJobTitle(experience.getJobTitle());
         response.setStartDate(experience.getStartDate());
         response.setEndDate(experience.getEndDate());
         response.setExperience(experience.getExperience());
