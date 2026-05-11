@@ -6,10 +6,10 @@ import com.hireflow.hireflow.data.repository.CompanyRepository;
 import com.hireflow.hireflow.dto.request.CompanyRequest;
 import com.hireflow.hireflow.dto.response.CompanyResponse;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.event.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.CompanyMapper;
-import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.impl.CompanyServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Optional;
@@ -32,7 +33,7 @@ class CompanyServiceImplTest {
 
     @Mock private CompanyRepository companyRepository;
     @Mock private UserService userService;
-    @Mock private EmailService emailService;
+    @Mock private ApplicationEventPublisher applicationEventPublisher;
     @Mock private CompanyMapper companyMapper;
     @InjectMocks private CompanyServiceImpl companyService;
 
@@ -82,7 +83,13 @@ class CompanyServiceImplTest {
         assertThat(response.getName()).isEqualTo("Acme");
         assertThat(adminUser.getCompany()).isEqualTo(company);
         verify(userService).save(adminUser);
-        verify(emailService).sendCompanyWelcome("admin@example.com", "Alice", "Acme");
+        verify(applicationEventPublisher).publishEvent(argThat((Object event) ->
+                event instanceof EmailNotificationEvent emailEvent
+                        && EmailNotificationEvent.COMPANY_WELCOME.equals(emailEvent.getType())
+                        && "admin@example.com".equals(emailEvent.getTo())
+                        && "Alice".equals(emailEvent.getFirstName())
+                        && "Acme".equals(emailEvent.getCompanyName())
+        ));
     }
 
     @Test
@@ -92,7 +99,7 @@ class CompanyServiceImplTest {
                 .isInstanceOf(AccessDeniedException.class);
 
         verify(companyRepository, never()).save(any());
-        verify(emailService, never()).sendCompanyWelcome(any(), any(), any());
+        verify(applicationEventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -124,7 +131,7 @@ class CompanyServiceImplTest {
 
         verify(companyRepository, never()).existsByNameIgnoreCase(any());
         verify(companyRepository, never()).save(any());
-        verify(emailService, never()).sendCompanyWelcome(any(), any(), any());
+        verify(applicationEventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test

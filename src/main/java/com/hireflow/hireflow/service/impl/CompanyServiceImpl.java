@@ -6,15 +6,16 @@ import com.hireflow.hireflow.data.repository.CompanyRepository;
 import com.hireflow.hireflow.dto.request.CompanyRequest;
 import com.hireflow.hireflow.dto.response.CompanyResponse;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.event.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.CompanyMapper;
 import com.hireflow.hireflow.service.CompanyService;
-import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -28,7 +29,7 @@ public class CompanyServiceImpl implements CompanyService {
 
     private final CompanyRepository companyRepository;
     private final UserService userService;
-    private final EmailService emailService;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final CompanyMapper companyMapper;
 
     @Override
@@ -53,7 +54,16 @@ public class CompanyServiceImpl implements CompanyService {
             user.setCompany(saved);
             userService.save(user);
 
-            emailService.sendCompanyWelcome(user.getEmail(), user.getFirstName(), saved.getName());
+            String email = user.getEmail();
+            String firstName = user.getFirstName();
+            String companyName = saved.getName();
+            applicationEventPublisher.publishEvent(new EmailNotificationEvent(
+                    EmailNotificationEvent.COMPANY_WELCOME,
+                    email,
+                    null,
+                    firstName,
+                    companyName
+            ));
 
             return companyMapper.toResponse(saved);
         } catch (AccessDeniedException | DuplicateResourceException ex) {

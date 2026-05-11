@@ -9,15 +9,15 @@ import java.util.concurrent.Executor;
 
 @Configuration
 @EnableAsync
-public class AsyncConfig {
+public class NotificationAsyncConfig {
 
-    @Bean(name = "emailAsyncExecutor")
-    public Executor emailAsyncExecutor() {
+    @Bean(name = "notificationAsyncExecutor")
+    public Executor notificationAsyncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(5);
-        executor.setQueueCapacity(50);
-        executor.setThreadNamePrefix("email-async-");
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("notification-async-");
         executor.initialize();
         return executor;
     }

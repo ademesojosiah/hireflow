@@ -7,7 +7,7 @@ import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.service.email.EmailService;
+import com.hireflow.hireflow.service.notification.NotificationEventPublisher;
 import java.time.Instant;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +35,7 @@ class AuthControllerTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private UserRepository userRepository;
     @Autowired private PasswordEncoder passwordEncoder;
-    @MockitoBean private EmailService emailService;
+    @MockitoBean private NotificationEventPublisher notificationEventPublisher;
 
     @AfterEach
     void cleanUp() {

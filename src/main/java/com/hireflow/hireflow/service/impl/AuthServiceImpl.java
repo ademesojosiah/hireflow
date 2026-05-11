@@ -5,6 +5,7 @@ import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
+import com.hireflow.hireflow.event.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.EmailNotVerifiedException;
@@ -12,10 +13,10 @@ import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
 import com.hireflow.hireflow.service.AuthService;
-import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -32,7 +33,7 @@ import java.time.Instant;
 public class AuthServiceImpl implements AuthService {
 
     private final UserService userService;
-    private final EmailService emailService;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
@@ -58,7 +59,9 @@ public class AuthServiceImpl implements AuthService {
             user.setOtpExpiry(Instant.now().plusSeconds(600));
 
             userService.save(user);
-            emailService.sendOtp(request.getEmail(), otp);
+
+            String email = request.getEmail();
+            publishOtpEmailRequested(email, otp);
 
         } catch (DuplicateResourceException ex) {
             log.error(ex.getMessage());
@@ -136,10 +139,21 @@ public class AuthServiceImpl implements AuthService {
     private void handleUnverifiedLogin(User user) {
         if (user.getOtpExpiry() == null || Instant.now().isAfter(user.getOtpExpiry())) {
             String otp = rotateOtp(user);
-            emailService.sendOtp(user.getEmail(), otp);
+            String email = user.getEmail();
+            publishOtpEmailRequested(email, otp);
             throw new EmailNotVerifiedException("Please verify your email. A new OTP has been sent to your email.");
         }
         throw new EmailNotVerifiedException("Please verify your email. Enter the OTP sent to your inbox.");
+    }
+
+    private void publishOtpEmailRequested(String email, String otp) {
+        applicationEventPublisher.publishEvent(new EmailNotificationEvent(
+                EmailNotificationEvent.OTP_VERIFICATION,
+                email,
+                otp,
+                null,
+                null
+        ));
     }
 
     protected String rotateOtp(User user) {

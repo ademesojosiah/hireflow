@@ -6,13 +6,13 @@ import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.event.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.EmailNotVerifiedException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
-import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.impl.AuthServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,7 +41,7 @@ class AuthServiceImplTest {
     @Mock
     private UserService userService;
     @Mock
-    private EmailService emailService;
+    private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
@@ -89,6 +90,12 @@ class AuthServiceImplTest {
 
         verify(passwordEncoder).encode("password123");
         verify(userService).save(any(User.class));
+        verify(applicationEventPublisher).publishEvent(argThat((Object event) ->
+                event instanceof EmailNotificationEvent emailEvent
+                        && EmailNotificationEvent.OTP_VERIFICATION.equals(emailEvent.getType())
+                        && "john@example.com".equals(emailEvent.getTo())
+                        && emailEvent.getOtp() != null
+        ));
     }
 
     @Test
@@ -230,6 +237,12 @@ class AuthServiceImplTest {
         assertThat(unverifiedUser.getOtp()).isNotNull();
         assertThat(unverifiedUser.getOtpExpiry()).isAfter(Instant.now());
         verify(userService).save(unverifiedUser);
+        verify(applicationEventPublisher).publishEvent(argThat((Object event) ->
+                event instanceof EmailNotificationEvent emailEvent
+                        && EmailNotificationEvent.OTP_VERIFICATION.equals(emailEvent.getType())
+                        && "jane@example.com".equals(emailEvent.getTo())
+                        && emailEvent.getOtp() != null
+        ));
     }
 
     @Test
