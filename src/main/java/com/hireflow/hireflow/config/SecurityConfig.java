@@ -59,6 +59,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/resume-profiles/user/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers("/api/v1/resume-profiles/**").hasRole("APPLICANT")
 
+                        .requestMatchers("/api/v1/uploads/**").hasRole("APPLICANT")
+
                         .anyRequest().authenticated()
                 )
 

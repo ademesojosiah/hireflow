@@ -21,6 +21,8 @@ public class ResumeProfileResponse {
     private String phoneNumber;
     private String linkedIn;
     private String summary;
+    private String resumePdfUrl;
+    private String resumePublicId;
     private List<SkillResponse> skills;
     private List<WorkExperienceResponse> workExperiences;
     private List<EducationResponse> educations;

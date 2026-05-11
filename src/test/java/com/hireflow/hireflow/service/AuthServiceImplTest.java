@@ -12,7 +12,7 @@ import com.hireflow.hireflow.exception.EmailNotVerifiedException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.UserMapper;
 import com.hireflow.hireflow.security.util.JwtUtil;
-import com.hireflow.hireflow.service.EmailService;
+import com.hireflow.hireflow.service.email.EmailService;
 import com.hireflow.hireflow.service.impl.AuthServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

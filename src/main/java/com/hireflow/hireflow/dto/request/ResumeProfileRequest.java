@@ -25,6 +25,12 @@ public class ResumeProfileRequest {
     @Size(max = 5000)
     private String summary;
 
+    @Size(max = 2000)
+    private String resumePdfUrl;
+
+    @Size(max = 500)
+    private String resumePublicId;
+
     private Set<String> skillIds;
 
     @Valid

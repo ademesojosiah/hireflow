@@ -27,6 +27,8 @@ public class ResumeProfileMapper {
         profile.setPhoneNumber(request.getPhoneNumber());
         profile.setLinkedIn(request.getLinkedIn());
         profile.setSummary(request.getSummary());
+        profile.setResumePdfUrl(request.getResumePdfUrl());
+        profile.setResumePublicId(request.getResumePublicId());
         profile.setSkills(new ArrayList<>());
         profile.setWorkExperiences(new ArrayList<>());
         profile.setEducations(new ArrayList<>());
@@ -45,6 +47,12 @@ public class ResumeProfileMapper {
         }
         if (request.getSummary() != null) {
             profile.setSummary(request.getSummary());
+        }
+        if (request.getResumePdfUrl() != null) {
+            profile.setResumePdfUrl(request.getResumePdfUrl());
+        }
+        if (request.getResumePublicId() != null) {
+            profile.setResumePublicId(request.getResumePublicId());
         }
 
         if (skills != null) {
@@ -69,6 +77,8 @@ public class ResumeProfileMapper {
         response.setPhoneNumber(profile.getPhoneNumber());
         response.setLinkedIn(profile.getLinkedIn());
         response.setSummary(profile.getSummary());
+        response.setResumePdfUrl(profile.getResumePdfUrl());
+        response.setResumePublicId(profile.getResumePublicId());
 
         User user = profile.getUser();
         if (user != null) {

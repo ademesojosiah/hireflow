@@ -42,6 +42,26 @@ public void sendWelcomeAsync(User user) {
 
 ---
 
+### 3. File Uploads: Pre-Signed Cloudinary Signature (Direct Upload) ✓
+
+The backend never receives uploaded files. Instead it generates a short-lived Cloudinary upload signature and returns it to the frontend, which uploads directly to Cloudinary.
+
+**Why:** Routing file bytes through the backend wastes memory and bandwidth, blocks threads, and becomes a bottleneck under concurrent uploads. Offloading to Cloudinary's infrastructure keeps the API server lean.
+
+**Flow:**
+```
+1. Frontend  →  GET /api/v1/uploads/pdf-signature  →  Backend
+2. Backend signs {timestamp, folder} with API secret  →  returns signature params
+3. Frontend  →  POST https://api.cloudinary.com/v1_1/{cloud}/raw/upload  (with signature)
+4. Cloudinary validates signature and stores file
+5. Cloudinary  →  returns { secure_url, public_id }  →  Frontend
+6. Frontend  →  POST /api/v1/... { pdfUrl, publicId }  →  Backend saves metadata only
+```
+
+**Security invariant:** The Cloudinary API secret never leaves the backend. The frontend receives only a signed, time-bound token that is valid for a single upload into a fixed folder (`resumes`). Tampering with any upload parameter (folder, timestamp) invalidates the signature and Cloudinary rejects the request.
+
+---
+
 ## Part 2: General/Strategic Alignment
 
 ### The Problem: "Recruitment Anxiety Gap"

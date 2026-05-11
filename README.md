@@ -46,6 +46,7 @@ HireFlow is a hiring management platform designed to help companies streamline t
 - **OTP email verification** — 6-digit codes, 10-minute expiry, automatic regeneration on expired-OTP login attempts.
 - **Asynchronous email delivery** — emails are dispatched on a dedicated thread pool so request handlers never block on SMTP I/O.
 - **Role-based access control** — `APPLICANT`, `HMANAGER`, `ADMIN`.
+- **Direct-to-Cloudinary signed uploads** — the backend generates a short-lived Cloudinary signature; the frontend uploads the file directly to Cloudinary and sends back only the resulting URL. The server never handles the file bytes.
 - **Centralised exception handling** — `@RestControllerAdvice` returns a consistent `ApiResponse` envelope for every error class.
 - **Comprehensive test coverage** — every service method and controller endpoint has both unit and full-stack integration tests.
 
@@ -140,15 +141,66 @@ erDiagram
         Instant updatedAt
     }
 
+    ResumeProfile {
+        String id PK "UUID"
+        String user_id FK "unique, required, indexed"
+        String phoneNumber "nullable, max 30"
+        String linkedIn "nullable, max 300"
+        String summary "TEXT, nullable"
+        String resumePdfUrl "nullable, max 2000 — Cloudinary secure_url"
+        String resumePublicId "nullable, max 500 — Cloudinary public_id"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    ResumeProfileSkill {
+        String id PK "UUID"
+        String resume_profile_id FK "required, indexed"
+        String skill_id FK "required, indexed"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    WorkExperience {
+        String id PK "UUID"
+        String resume_profile_id FK "required, indexed"
+        String companyName "required"
+        LocalDate startDate "required"
+        LocalDate endDate "nullable — null means current role"
+        String experience "TEXT, nullable"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    Education {
+        String id PK "UUID"
+        String resume_profile_id FK "required, indexed"
+        String institutionName "required"
+        String degree "required"
+        LocalDate startDate "required"
+        LocalDate endDate "nullable"
+        Instant createdAt
+        Instant updatedAt
+    }
+
     Company ||--o{ JobListing : "owns (1:N, cascade ALL, orphanRemoval)"
     Company ||--o| User : "employs (1:1 via company_id, nullable for APPLICANT)"
     JobListing ||--o{ JobListingSkill : "has (1:N, cascade ALL, orphanRemoval)"
     Skill ||--o{ JobListingSkill : "appears in (1:N)"
+    Skill ||--o{ ResumeProfileSkill : "appears in (1:N)"
+    User ||--o| ResumeProfile : "has (1:1, FK on resume_profile)"
+    ResumeProfile ||--o{ ResumeProfileSkill : "has (1:N, cascade ALL, orphanRemoval)"
+    ResumeProfile ||--o{ WorkExperience : "has (1:N, cascade ALL, orphanRemoval)"
+    ResumeProfile ||--o{ Education : "has (1:N, cascade ALL, orphanRemoval)"
     BaseEntity ||--|| Company : "extends"
     BaseEntity ||--|| User : "extends"
     BaseEntity ||--|| JobListing : "extends"
     BaseEntity ||--|| JobListingSkill : "extends"
     BaseEntity ||--|| Skill : "extends"
+    BaseEntity ||--|| ResumeProfile : "extends"
+    BaseEntity ||--|| ResumeProfileSkill : "extends"
+    BaseEntity ||--|| WorkExperience : "extends"
+    BaseEntity ||--|| Education : "extends"
 ```
 
 #### Detailed Entity Reference
@@ -192,8 +244,8 @@ Relationships:
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Relationships:
-- `User many ─> Company` (`@OneToOne(fetch=LAZY)`, `@JoinColumn(name="company_id", nullable=true)`)
-- Note: `Company` does NOT hold a back-reference to `User`
+- `User many ─> Company` (`@ManyToOne(fetch=LAZY)`, `@JoinColumn(name="company_id", nullable=true)`)
+- `User 1 ──1 ResumeProfile` (FK sits on `resume_profiles.user_id`; `User` holds no back-reference)
 
 ---
 
@@ -230,7 +282,7 @@ Relationships:
 | `skill_id` | UUID | FK → `skills.id`, NOT NULL | |
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
-Constraints: `UNIQUE (job_listing_id, skill_id)` — `uk_jls_job_skill` (no duplicate skill links)
+Constraints: `UNIQUE (job_listing_id, skill_id)` — `uk_jls_job_skill`
 Indexes: `idx_jls_job` on `job_listing_id`, `idx_jls_skill` on `skill_id`
 
 Relationships:
@@ -239,7 +291,7 @@ Relationships:
 
 ---
 
-**`skills`** — global lookup table
+**`skills`** — global lookup table (curated by ADMIN/HMANAGER; applicants attach by ID only)
 | Column | Type | Constraint | Notes |
 |---|---|---|---|
 | `id` | UUID | PK | inherited |
@@ -247,8 +299,83 @@ Relationships:
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Relationships:
-- `Skill 1 ──< JobListingSkill` (referenced by join table)
-- *(Future)* `Skill <─> Application`, `Skill <─> ResumeProfile` via additional join tables
+- `Skill 1 ──< JobListingSkill` (referenced by job listing join table)
+- `Skill 1 ──< ResumeProfileSkill` (referenced by resume profile join table)
+
+---
+
+**`resume_profiles`** — applicant's professional profile (one per user)
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `user_id` | UUID | FK → `users.id`, UNIQUE, NOT NULL, indexed (`idx_resume_profile_user`) | one profile per applicant |
+| `phoneNumber` | VARCHAR | nullable | max 30 chars |
+| `linkedIn` | VARCHAR | nullable | max 300 chars |
+| `summary` | TEXT | nullable | professional summary |
+| `resumePdfUrl` | VARCHAR(2000) | nullable | Cloudinary `secure_url` returned after direct upload |
+| `resumePublicId` | VARCHAR(500) | nullable | Cloudinary `public_id` — used to delete/replace the file |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `uk_resume_profile_user` on `user_id`
+
+Relationships:
+- `ResumeProfile many ─> User` (`@OneToOne(fetch=LAZY)`, FK on this table)
+- `ResumeProfile 1 ──< ResumeProfileSkill` (`@OneToMany`, cascade ALL, orphanRemoval)
+- `ResumeProfile 1 ──< WorkExperience` (`@OneToMany`, cascade ALL, orphanRemoval)
+- `ResumeProfile 1 ──< Education` (`@OneToMany`, cascade ALL, orphanRemoval)
+
+---
+
+**`resume_profile_skills`** — manual join table linking a profile to curated skills
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `resume_profile_id` | UUID | FK → `resume_profiles.id`, NOT NULL, `@JsonIgnore` | back-reference |
+| `skill_id` | UUID | FK → `skills.id`, NOT NULL | |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `UNIQUE (resume_profile_id, skill_id)` — `uk_rps_profile_skill`
+Indexes: `idx_rps_profile` on `resume_profile_id`, `idx_rps_skill` on `skill_id`
+
+Relationships:
+- `ResumeProfileSkill many ─> ResumeProfile` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
+- `ResumeProfileSkill many ─> Skill` (`@ManyToOne(fetch=LAZY)`)
+
+---
+
+**`work_experiences`** — career history entries owned by a resume profile
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `resume_profile_id` | UUID | FK → `resume_profiles.id`, NOT NULL, `@JsonIgnore`, indexed (`idx_work_experience_profile`) | back-reference |
+| `companyName` | VARCHAR | NOT NULL | |
+| `startDate` | DATE | NOT NULL | `LocalDate` |
+| `endDate` | DATE | nullable | null = current role |
+| `experience` | TEXT | nullable | HTML-friendly description |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Service rule: `endDate`, when present, must be ≥ `startDate` (validated before persist).
+
+Relationships:
+- `WorkExperience many ─> ResumeProfile` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
+
+---
+
+**`educations`** — academic history entries owned by a resume profile
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `resume_profile_id` | UUID | FK → `resume_profiles.id`, NOT NULL, `@JsonIgnore`, indexed (`idx_education_profile`) | back-reference |
+| `institutionName` | VARCHAR | NOT NULL | |
+| `degree` | VARCHAR | NOT NULL | e.g., "B.Sc Computer Science" |
+| `startDate` | DATE | NOT NULL | `LocalDate` |
+| `endDate` | DATE | nullable | null = ongoing |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Service rule: `endDate`, when present, must be ≥ `startDate`.
+
+Relationships:
+- `Education many ─> ResumeProfile` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
 
 ---
 
@@ -259,11 +386,16 @@ Relationships:
 | Company → JobListing | 1 : N | `JobListing.company` | ALL, orphanRemoval |
 | Company → User | 1 : 0..1 (per current code) | `User.company` | none |
 | JobListing → JobListingSkill | 1 : N | `JobListingSkill.jobListing` | ALL, orphanRemoval |
-| Skill → JobListingSkill | 1 : N | `JobListingSkill.skill` | none (skills outlive job links) |
+| Skill → JobListingSkill | 1 : N | `JobListingSkill.skill` | none |
+| User → ResumeProfile | 1 : 0..1 | `ResumeProfile.user` (FK on weaker side) | none |
+| ResumeProfile → ResumeProfileSkill | 1 : N | `ResumeProfileSkill.resumeProfile` | ALL, orphanRemoval |
+| ResumeProfile → WorkExperience | 1 : N | `WorkExperience.resumeProfile` | ALL, orphanRemoval |
+| ResumeProfile → Education | 1 : N | `Education.resumeProfile` | ALL, orphanRemoval |
+| Skill → ResumeProfileSkill | 1 : N | `ResumeProfileSkill.skill` | none |
 
 #### Planned Entities (v3.1+)
 
-`Application`, `ResumeProfile`, `Education`, `WorkExperience`, `AIScreeningResult`, `InterviewSlot`, `StageUpdate` —
+`Application`, `AIScreeningResult`, `InterviewSlot`, `StageUpdate` —
 
 
 ---
@@ -377,6 +509,19 @@ Errors:
 | POST   | `/api/v1/auth/register` | Register a new user; sends OTP to email.                 | Public      |
 | POST   | `/api/v1/auth/verify-otp` | Verify the OTP and activate the account.              | Public      |
 | POST   | `/api/v1/auth/login`    | Authenticate and receive a JWT.                          | Public      |
+
+### Resume Profiles
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| PUT | `/api/v1/resume-profiles` | Create or replace the authenticated applicant's resume profile (upsert). | APPLICANT |
+| GET | `/api/v1/resume-profiles` | Retrieve the authenticated applicant's own profile. | APPLICANT |
+| DELETE | `/api/v1/resume-profiles` | Delete the authenticated applicant's profile (cascades child rows). | APPLICANT |
+| GET | `/api/v1/resume-profiles/user/{userId}` | Retrieve any applicant's profile by user ID. | HMANAGER, ADMIN |
+
+Skills are referenced by ID from the curated skills catalogue — applicants cannot create new skills.
+
+---
 
 #### Login behaviour for unverified accounts
 
