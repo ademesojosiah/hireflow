@@ -15,7 +15,7 @@ public interface SkillService {
 
     List<Skill> findAllByIds(Set<String> ids);
 
-    List<Skill> findOrCreateByNames(List<String> names);
+    List<Skill> findOrCreateByNames(Set<String> names);
 
     int seedDefaultsIfBelowMinimum(List<String> skillNames);
 }

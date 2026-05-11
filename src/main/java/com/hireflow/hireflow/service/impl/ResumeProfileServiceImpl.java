@@ -109,24 +109,6 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
         }
     }
 
-    @Override
-    @Transactional
-    public ResumeProfileResponse updateResumePdfUrl(String pdfUrl, User user) {
-        try {
-            User refreshed = requireApplicant(user);
-            ResumeProfile profile = resumeProfileRepository.findByUser_Id(refreshed.getId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Resume profile not found"));
-            profile.setResumePdfUrl(pdfUrl);
-            ResumeProfile saved = resumeProfileRepository.save(profile);
-            return resumeProfileMapper.toResponse(saved);
-        } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
-            log.error(ex.getMessage());
-            throw ex;
-        } catch (Exception ex) {
-            log.error("Failed to update resume PDF URL: {}", ex.getMessage());
-            throw new CustomException("Failed to update resume PDF URL: Internal Server Error");
-        }
-    }
 
     private User requireApplicant(User user) {
         if (user == null) {

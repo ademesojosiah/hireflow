@@ -70,7 +70,7 @@ class ResumeProfileServiceImplTest {
                 null,
                 null,
                 null,
-                List.of(new WorkExperienceRequest("Acme", LocalDate.of(2022, 3, 1), null, "<p>Built APIs</p>")),
+                List.of(new WorkExperienceRequest("Acme","Backend Developer", LocalDate.of(2022, 3, 1), null, "<p>Built APIs</p>")),
                 List.of(new EducationRequest("MIT", "B.Sc CS", LocalDate.of(2016, 9, 1), LocalDate.of(2020, 6, 1)))
         );
     }
@@ -113,7 +113,7 @@ class ResumeProfileServiceImplTest {
         Skill spring = new Skill();
         spring.setId("skill-2");
         spring.setName("Spring");
-        List<String> names = List.of("Java", "Spring");
+        Set<String> names = Set.of("Java", "Spring");
         request.setSkillNames(names);
         List<Skill> resolved = List.of(java, spring);
 
@@ -145,7 +145,7 @@ class ResumeProfileServiceImplTest {
     void upsert_invalidWorkDates() {
         when(userService.findUserById("user-1")).thenReturn(applicant);
         request.setWorkExperiences(List.of(
-                new WorkExperienceRequest("Acme", LocalDate.of(2022, 5, 1), LocalDate.of(2022, 1, 1), "x")));
+                new WorkExperienceRequest("Acme","Backend Developer", LocalDate.of(2022, 5, 1), LocalDate.of(2022, 1, 1), "x")));
 
         assertThatThrownBy(() -> resumeProfileService.upsertMyProfile(request, applicant))
                 .isInstanceOf(CustomException.class)

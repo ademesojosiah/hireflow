@@ -13,6 +13,4 @@ public interface ResumeProfileService {
     ResumeProfileResponse findByUserId(String userId);
 
     void deleteMyProfile(User user);
-
-    ResumeProfileResponse updateResumePdfUrl(String pdfUrl, User user);
 }

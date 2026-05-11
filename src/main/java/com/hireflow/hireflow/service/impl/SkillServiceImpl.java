@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -92,7 +93,7 @@ public class SkillServiceImpl implements SkillService {
 
     @Override
     @Transactional
-    public List<Skill> findOrCreateByNames(List<String> names) {
+    public List<Skill> findOrCreateByNames(Set<String> names) {
         if (names == null || names.isEmpty()) {
             return List.of();
         }
@@ -103,11 +104,18 @@ public class SkillServiceImpl implements SkillService {
                 .distinct()
                 .toList();
 
-        List<Skill> existingSkills = skillRepository.findAllByNameIgnoreCaseIn(normalizedNames);
+        if (normalizedNames.isEmpty()) {
+            return List.of();
+        }
 
-        List<String> existingNames = existingSkills.stream()
-                .map(skill -> normalizeName(skill.getName()))
-                .toList();
+        List<Skill> existingSkills = new ArrayList<>(
+                skillRepository.findAllByNameIgnoreCaseIn(normalizedNames)
+        );
+
+        Set<String> existingNames = existingSkills.stream()
+                .map(Skill::getName)
+                .map(this::normalizeName)
+                .collect(Collectors.toSet());
 
         List<Skill> missingSkills = normalizedNames.stream()
                 .filter(name -> !existingNames.contains(name))
@@ -119,8 +127,7 @@ public class SkillServiceImpl implements SkillService {
                 .toList();
 
         if (!missingSkills.isEmpty()) {
-            List<Skill> saved = skillRepository.saveAll(missingSkills);
-            existingSkills.addAll(saved);
+            existingSkills.addAll(skillRepository.saveAll(missingSkills));
         }
 
         return existingSkills;

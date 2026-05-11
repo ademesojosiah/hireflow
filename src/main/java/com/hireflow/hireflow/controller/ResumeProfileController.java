@@ -46,12 +46,4 @@ public class ResumeProfileController {
         return ResponseEntity.ok(ApiResponse.success("Resume profile deleted"));
     }
 
-    @PatchMapping("/pdf-url")
-    public ResponseEntity<?> updateResumePdfUrl(
-            @RequestBody Map<String, String> request,
-            @AuthenticationPrincipal UserPrincipal userPrincipal) {
-        String pdfUrl = request.get("pdfUrl");
-        ResumeProfileResponse updated = resumeProfileService.updateResumePdfUrl(pdfUrl, userPrincipal.getUser());
-        return ResponseEntity.ok(ApiResponse.success("Resume PDF URL updated", updated));
-    }
 }
