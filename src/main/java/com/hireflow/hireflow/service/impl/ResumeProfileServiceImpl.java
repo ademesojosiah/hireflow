@@ -116,7 +116,7 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
             User refreshed = requireApplicant(user);
             ResumeProfile profile = resumeProfileRepository.findByUser_Id(refreshed.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Resume profile not found"));
-            profile.setPdfUrl(pdfUrl);
+            profile.setResumePdfUrl(pdfUrl);
             ResumeProfile saved = resumeProfileRepository.save(profile);
             return resumeProfileMapper.toResponse(saved);
         } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {

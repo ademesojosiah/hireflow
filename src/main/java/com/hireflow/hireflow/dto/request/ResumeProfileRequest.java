@@ -30,7 +30,7 @@ public class ResumeProfileRequest {
     @Size(max = 500)
     private String resumePublicId;
 
-    private Set<String> skillIds;
+    private List<String> skillNames;
 
     @Valid
     private List<WorkExperienceRequest> workExperiences;

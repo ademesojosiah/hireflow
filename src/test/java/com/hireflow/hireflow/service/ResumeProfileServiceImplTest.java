@@ -105,18 +105,20 @@ class ResumeProfileServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should resolve and attach skills via SkillService when skillIds are provided")
+    @DisplayName("Should resolve and attach skills via SkillService when skillNames are provided")
     void upsert_withSkills() {
         Skill java = new Skill();
         java.setId("skill-1");
+        java.setName("Java");
         Skill spring = new Skill();
         spring.setId("skill-2");
-        Set<String> ids = Set.of("skill-1", "skill-2");
-        request.setSkillIds(ids);
+        spring.setName("Spring");
+        List<String> names = List.of("Java", "Spring");
+        request.setSkillNames(names);
         List<Skill> resolved = List.of(java, spring);
 
         when(userService.findUserById("user-1")).thenReturn(applicant);
-        when(skillService.findAllByIds(ids)).thenReturn(resolved);
+        when(skillService.findOrCreateByNames(names)).thenReturn(resolved);
         when(resumeProfileRepository.findByUser_Id("user-1")).thenReturn(Optional.empty());
         when(resumeProfileMapper.toEntity(eq(request), eq(applicant), eq(resolved))).thenReturn(profile);
         when(resumeProfileRepository.save(profile)).thenReturn(profile);
@@ -124,7 +126,7 @@ class ResumeProfileServiceImplTest {
 
         resumeProfileService.upsertMyProfile(request, applicant);
 
-        verify(skillService).findAllByIds(ids);
+        verify(skillService).findOrCreateByNames(names);
         verify(resumeProfileMapper).toEntity(eq(request), eq(applicant), eq(resolved));
     }
 
@@ -148,20 +150,6 @@ class ResumeProfileServiceImplTest {
         assertThatThrownBy(() -> resumeProfileService.upsertMyProfile(request, applicant))
                 .isInstanceOf(CustomException.class)
                 .hasMessageContaining("end date must be on or after start date");
-        verify(resumeProfileRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Should propagate ResourceNotFoundException when SkillService rejects unknown skill IDs")
-    void upsert_unknownSkillId() {
-        Set<String> ids = Set.of("skill-missing");
-        request.setSkillIds(ids);
-        when(userService.findUserById("user-1")).thenReturn(applicant);
-        when(skillService.findAllByIds(ids))
-                .thenThrow(new ResourceNotFoundException("One or more skills not found"));
-
-        assertThatThrownBy(() -> resumeProfileService.upsertMyProfile(request, applicant))
-                .isInstanceOf(ResourceNotFoundException.class);
         verify(resumeProfileRepository, never()).save(any());
     }
 
