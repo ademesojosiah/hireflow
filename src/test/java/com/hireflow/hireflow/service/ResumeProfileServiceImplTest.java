@@ -68,6 +68,8 @@ class ResumeProfileServiceImplTest {
                 "https://linkedin.com/in/me",
                 "Backend engineer.",
                 null,
+                null,
+                null,
                 List.of(new WorkExperienceRequest("Acme", LocalDate.of(2022, 3, 1), null, "<p>Built APIs</p>")),
                 List.of(new EducationRequest("MIT", "B.Sc CS", LocalDate.of(2016, 9, 1), LocalDate.of(2020, 6, 1)))
         );

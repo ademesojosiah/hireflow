@@ -83,6 +83,8 @@ class ResumeProfileControllerTest {
                 "+2348012345678",
                 "https://linkedin.com/in/johndoe",
                 "Backend engineer with 5+ years experience.",
+                null,
+                null,
                 skillIds,
                 List.of(
                         new WorkExperienceRequest(
@@ -137,7 +139,7 @@ class ResumeProfileControllerTest {
 
         ResumeProfileRequest replacement = new ResumeProfileRequest(
                 "+447000000000", "https://linkedin.com/in/updated", "Updated summary.",
-                Set.of(), List.of(), List.of());
+                null, null, Set.of(), List.of(), List.of());
 
         mockMvc.perform(put("/api/v1/resume-profiles")
                         .with(user(principalFor(applicant)))
@@ -190,7 +192,7 @@ class ResumeProfileControllerTest {
     @DisplayName("Should return 400 when work-experience end date precedes start date")
     void upsert_invalidWorkDates() throws Exception {
         ResumeProfileRequest request = new ResumeProfileRequest(
-                null, null, null, null,
+                null, null, null, null, null, null,
                 List.of(new WorkExperienceRequest(
                         "Acme",
                         LocalDate.of(2022, 5, 1),
