@@ -1,6 +1,6 @@
 # HireFlow v3.0 - Technical Decisions and Product Direction
 
-This document records the technical decisions, current solutions, and future plans for HireFlow. It should stay practical: every product problem should map to an implemented or planned technical response.
+This document records the technical decisions, current solutions, and active plans for HireFlow. It should stay practical: every product problem should map to an implemented or planned technical response.
 
 ---
 
@@ -71,7 +71,7 @@ public void sendWelcomeAsync(User user) {
 
 HireFlow is solving the recruitment anxiety gap: candidates lack visibility, hiring managers lack consistent evidence, and both sides make decisions with incomplete information.
 
-Each problem below is tracked with the current solution and future plan.
+Each problem below is tracked with the current plan and technical direction.
 
 ---
 
@@ -81,7 +81,7 @@ Each problem below is tracked with the current solution and future plan.
 
 HR managers need a clear best-candidate recommendation, not just a list of applicants. Ranking should explain why a candidate is recommended and what risks remain.
 
-### Current Solution
+### Current Plan
 
 - Store resume profile data in structured fields.
 - Use AI resume analysis to extract skills, experience, education, and match indicators.
@@ -89,10 +89,8 @@ HR managers need a clear best-candidate recommendation, not just a list of appli
 - Preserve stage transitions through an append-only `StageUpdate` audit trail.
 - Allow HR managers to compare top candidates side by side.
 
-### Future Plan
-
 - Add a hiring manager recommendation score that combines:
-  - live assessment score
+  - role-specific assessment score
   - interview scorecard
   - project consistency score
 - Explain every recommendation with evidence, not just a numeric rank.
@@ -112,28 +110,27 @@ HR managers need a clear best-candidate recommendation, not just a list of appli
 
 Job posters need to define role-specific technical questions so candidates are assessed against the actual work, not generic interview prompts.
 
-### Current Solution
+### Current Plan
 
 - Job descriptions and requirements provide the base criteria for resume matching.
 - Interview scorecards provide structured evaluation after interviews.
-
-### Future Plan
-
-- Allow job posters to create technical questions while posting a job.
-- Support question types:
-  - short answer
-  - multiple choice
-  - coding challenge link
-  - project explanation
-  - scenario-based answer
-- Allow AI to suggest questions from the job description, but require poster approval before publishing.
-- Attach questions to a job version so later job edits do not silently change an active applicant's assessment.
+- Admins and hiring managers can add role-specific technical questions while creating or updating a job listing.
+- `JobListing` owns a simple `JobQuestion` child collection.
+- Each question stores:
+  - `question` - the candidate-facing prompt
+  - `answer` - an internal answer guide for HR or future AI grading
+- Job listing responses expose the question text, but do not expose the answer guide.
+- Updating a job listing replaces the current question list.
+- add timer to questions
 
 ### Technical Direction
 
-- Add entities such as `JobQuestion`, `QuestionType`, and `ApplicantAnswer`.
-- Store poster-authored questions separately from AI-suggested drafts.
-- Version questions per job posting to preserve assessment fairness.
+- Add applicant answer capture when the application assessment flow is introduced.
+- Use the stored answer guide for AI-assisted grading or HR review.
+- Add AI-suggested questions from job descriptions only after the poster approves them.
+- Add optional scoring rubrics per question when simple answer guides are not enough.
+- Add assessment integrity signals such as paste detection, typing time, and focus changes.
+- Revisit question versioning only when applicants begin answering questions asynchronously over time.
 
 ---
 
@@ -143,14 +140,12 @@ Job posters need to define role-specific technical questions so candidates are a
 
 Applicants can paste AI-generated or copied answers into assessments, reducing signal quality.
 
-### Current Solution
+### Current Plan
 
 - No strict anti-paste enforcement is currently documented.
 - Resume upload and profile submission are normal form-based workflows.
 
-### Future Plan
-
-- Disable paste events in live assessment answer fields.
+- Disable paste events in assessment answer fields.
 - Track suspicious browser behavior during assessments, such as repeated focus loss or instant large text insertion.
 - Add minimum typing-time heuristics for long-form answers.
 - Show applicants a clear integrity notice before the assessment starts.
@@ -165,13 +160,13 @@ Applicants can paste AI-generated or copied answers into assessments, reducing s
 
 ---
 
-## 6. AI Resume Analysis
+## 6. AI Resume Analysis Resmue and job analysis
 
 ### Problem
 
 Hiring teams need fast resume screening, but candidates should not be rejected by an unexplained black box.
 
-### Current Solution
+### Current Plan
 
 - Resume analysis extracts structured profile information.
 - AI screening should surface:
@@ -179,8 +174,6 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
   - unmatched skills
   - match percentage
   - short explanation
-
-### Future Plan
 
 - Add stronger parsing for projects, certifications, tools, seniority, and role-specific experience.
 - Compare resume claims directly against job requirements.
@@ -201,12 +194,10 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
 
 Applicants may list projects that do not align with their claimed skills, seniority, or role experience.
 
-### Current Solution
+### Current Plan
 
 - Project data can be collected from resumes and applicant profiles.
 - Resume analysis can identify skills and project descriptions.
-
-### Future Plan
 
 - Score whether listed projects support the applicant's claimed skills.
 - Detect mismatches such as:
@@ -224,73 +215,44 @@ Applicants may list projects that do not align with their claimed skills, senior
 
 ---
 
-## 8. Live Assessments
-
-### Problem
-
-Static resumes are not enough. Hiring teams need evidence of how applicants solve problems in real time.
-
-### Current Solution
-
-- Interview workflow supports structured scoring.
-- Assessment-specific live workflow is not yet fully documented.
-
-### Future Plan
-
-- Add timed live assessments tied to each job posting.
-- Support job-poster questions and role-specific tasks.
-- Track answer drafts, submission time, integrity events, and scoring.
-- Allow AI-assisted grading with human review for final hiring decisions.
-
-### Technical Direction
-
-- Add an assessment module with entities such as `Assessment`, `AssessmentSession`, `AssessmentSubmission`, and `AssessmentIntegrityEvent`.
-- Separate assessment scoring from interview scoring.
-- Keep assessment state transitions explicit: `NOT_STARTED`, `IN_PROGRESS`, `SUBMITTED`, `SCORED`, `REVIEWED`.
-
----
-
-### 4. Microservices Database Ownership: Centralised in Application Service ✓
+### 4. Microservices Database Ownership: Centralised in Application Service âœ“
 
 Only the Application Service owns a database. The AI Screening Service and Notification Service are stateless processing workers with no database of their own.
 
-**Why:** Giving each microservice its own DB is the textbook advice, but it creates overhead that is not justified until a service's data access patterns genuinely diverge. At this stage, `ai_screening_results` and `notification_attempts` are naturally queried alongside `applications` — keeping them in one DB avoids distributed joins, dual writes, and cross-service transactions.
+**Why:** Giving each microservice its own DB is the textbook advice, but it creates overhead that is not justified until a service's data access patterns genuinely diverge. At this stage, `ai_screening_results` and `notification_attempts` are naturally queried alongside `applications` â€” keeping them in one DB avoids distributed joins, dual writes, and cross-service transactions.
 
 **Service split:**
 
 | Service | DB | Role |
 |---|---|---|
-| Application Service | YES — owns all tables | Persistence authority; emits domain events |
+| Application Service | YES â€” owns all tables | Persistence authority; emits domain events |
 | AI Screening Service | NO | Consumes `ApplicationSubmitted`; runs AI; publishes `ScreeningCompleted` / `ScreeningFailed` |
 | Notification Service | NO | Consumes stage-change events; sends email/SMS; publishes `NotificationSent` |
 
-**Reliability without a DB:** Retry durability for the stateless services is provided by Kafka — retry topics with exponential backoff, dead-letter topics (DLTs) for poison messages. If AI screening fails, the AI service publishes `ScreeningFailed` and the Application Service marks the result as failed. No local DB required.
+**Reliability without a DB:** Retry durability for the stateless services is provided by Kafka â€” retry topics with exponential backoff, dead-letter topics (DLTs) for poison messages. If AI screening fails, the AI service publishes `ScreeningFailed` and the Application Service marks the result as failed. No local DB required.
 
 **When to revisit:** Add a database to a stateless service only if its data access patterns require independent querying at scale, or compliance mandates a separate audit store with long-term retention.
 
 ---
 
 ## Part 2: General/Strategic Alignment
-## 10. AI Inconsistency Scoring
+## 10. AI Inconsistency Scoring - detect inconsistency
 
 ### Problem
 
 AI can help detect inconsistencies across resumes, assessments, interviews, and GitHub data, but inconsistency detection must be explainable and fair.
 
-### Current Solution
+### Current Plan
 
 - AI screening explains matched and unmatched skills.
 - No full cross-source inconsistency score is currently documented.
-
-### Future Plan
 
 - Compare claims across:
   - resume
   - applicant profile
   - project descriptions
-  - live assessment answers
+  - assessment answers
   - interview feedback
-  - optional GitHub signals
 - Flag contradictions such as:
   - claiming a framework but failing basic questions about it
   - listing a project stack that does not appear in the project explanation
@@ -316,14 +278,12 @@ AI can help detect inconsistencies across resumes, assessments, interviews, and 
 
 Candidates experience silent application periods, opaque AI screening, inconsistent interviews, and unclear offer timelines.
 
-### Current Solution
+### Current Plan
 
 - Event-driven stage updates notify candidates when their status changes.
 - `StageUpdate` provides an append-only audit history.
 - AI screening should expose matched skills, unmatched skills, match percentage, and explanation.
 - Interview scoring uses structured criteria before offer decisions.
-
-### Future Plan
 
 - Add candidate-facing status timelines.
 - Show assessment completion status and expected review windows.

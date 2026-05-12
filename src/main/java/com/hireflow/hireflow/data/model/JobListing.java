@@ -70,4 +70,12 @@ public class JobListing extends BaseEntity {
             fetch = FetchType.LAZY
     )
     private List<JobListingSkill> skills = new ArrayList<>();
+
+    @OneToMany(
+            mappedBy = "jobListing",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
+    )
+    private List<JobQuestion> questions = new ArrayList<>();
 }

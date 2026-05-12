@@ -29,4 +29,40 @@ public class JobListingResponse {
     private String companyId;
     private String companyName;
     private List<SkillResponse> skills;
+    private List<JobQuestionResponse> questions;
+
+    public JobListingResponse(
+            String id,
+            String title,
+            JobType type,
+            String location,
+            String summary,
+            String responsibilities,
+            String requiredQualifications,
+            String preferredQualifications,
+            JobStatus status,
+            Integer autoRejectThreshold,
+            Integer autoPassThreshold,
+            String companyId,
+            String companyName,
+            List<SkillResponse> skills
+    ) {
+        this(
+                id,
+                title,
+                type,
+                location,
+                summary,
+                responsibilities,
+                requiredQualifications,
+                preferredQualifications,
+                status,
+                autoRejectThreshold,
+                autoPassThreshold,
+                companyId,
+                companyName,
+                skills,
+                List.of()
+        );
+    }
 }

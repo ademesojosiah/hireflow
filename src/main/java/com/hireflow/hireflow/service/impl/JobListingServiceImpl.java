@@ -6,6 +6,7 @@ import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.request.JobQuestionRequest;
 import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
@@ -46,6 +47,7 @@ public class JobListingServiceImpl implements JobListingService {
         try {
             Company company = requireCompanyManager(user);
             validateThresholds(request);
+            validateQuestions(request.getQuestions());
             List<Skill> skills = resolveSkills(request.getSkillIds());
             JobListing job = jobListingMapper.toEntity(request, company, skills);
             return jobListingMapper.toResponse(jobListingRepository.save(job));
@@ -66,6 +68,7 @@ public class JobListingServiceImpl implements JobListingService {
                     .orElseThrow(() -> new ResourceNotFoundException("Job listing not found"));
             requireJobOwner(user, job);
             validateThresholds(request);
+            validateQuestions(request.getQuestions());
             List<Skill> skills = request.getSkillIds() == null ? null : resolveSkills(request.getSkillIds());
             jobListingMapper.applyUpdate(job, request, skills);
             return jobListingMapper.toResponse(jobListingRepository.save(job));
@@ -155,6 +158,24 @@ public class JobListingServiceImpl implements JobListingService {
     private void validateThresholds(JobListingRequest request) {
         if (request.getAutoRejectThreshold() >= request.getAutoPassThreshold()) {
             throw new CustomException("Auto-reject threshold must be less than auto-pass threshold");
+        }
+    }
+
+    private void validateQuestions(List<JobQuestionRequest> questions) {
+        if (questions == null || questions.isEmpty()) {
+            return;
+        }
+
+        for (JobQuestionRequest question : questions) {
+            if (question == null) {
+                throw new CustomException("Question is required");
+            }
+            if (question.getQuestion() == null || question.getQuestion().isBlank()) {
+                throw new CustomException("Question is required");
+            }
+            if (question.getAnswer() == null || question.getAnswer().isBlank()) {
+                throw new CustomException("Answer is required");
+            }
         }
     }
 

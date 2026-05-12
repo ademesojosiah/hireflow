@@ -3,6 +3,7 @@ package com.hireflow.hireflow.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.JobListing;
+import com.hireflow.hireflow.data.model.JobQuestion;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.CompanyRepository;
@@ -10,10 +11,12 @@ import com.hireflow.hireflow.data.repository.JobListingRepository;
 import com.hireflow.hireflow.data.repository.SkillRepository;
 import com.hireflow.hireflow.data.repository.UserRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.request.JobQuestionRequest;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.security.UserPrincipal;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +29,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +50,7 @@ class JobListingControllerTest {
     @Autowired private JobListingRepository jobListingRepository;
     @Autowired private SkillRepository skillRepository;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private EntityManager entityManager;
 
     private Company company;
     private User hManager;
@@ -99,6 +104,13 @@ class JobListingControllerTest {
         return skillRepository.save(skill);
     }
 
+    private JobQuestionRequest shortAnswerQuestion() {
+        return new JobQuestionRequest(
+                "Explain how you would design a rate-limited REST API.",
+                "Use a token bucket or leaky bucket strategy backed by Redis."
+        );
+    }
+
     @Test
     @DisplayName("Should create a job listing and persist it linked to the manager's company")
     void create_success() throws Exception {
@@ -131,6 +143,79 @@ class JobListingControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.skills.length()").value(2));
         
+    }
+
+    @Test
+    @DisplayName("Should create a job listing with role-specific technical questions")
+    void create_withQuestions() throws Exception {
+        JobListingRequest request = new JobListingRequest(
+                "Java Dev",
+                JobType.FULL_TIME,
+                "Remote",
+                "Join us to build APIs",
+                "Design, build, and ship high-quality REST APIs.",
+                "5+ years Java, Spring Boot, MySQL.",
+                "Experience with Kafka and AWS.",
+                JobStatus.OPEN,
+                30,
+                80,
+                null,
+                List.of(
+                        shortAnswerQuestion(),
+                        new JobQuestionRequest(
+                                "Which cache invalidation approach is safest for user permissions?",
+                                "Event-driven invalidation on permission changes is safest."
+                        ),
+                        new JobQuestionRequest(
+                                "Complete the linked API design exercise.",
+                                "Submit a small REST API implementation and explain the tradeoffs."
+                        )
+                )
+        );
+
+        mockMvc.perform(post("/api/v1/jobs")
+                        .with(user(principalFor(hManager)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.questions.length()").value(3))
+                .andExpect(jsonPath("$.data.questions[0].question").value(shortAnswerQuestion().getQuestion()))
+                .andExpect(jsonPath("$.data.questions[0].answer").doesNotExist())
+                .andExpect(jsonPath("$.data.questions[1].question").value("Which cache invalidation approach is safest for user permissions?"));
+
+        JobListing persisted = jobListingRepository.findAll().getFirst();
+        assertThat(questionCountFor(persisted.getId())).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Should reject a job question without an answer")
+    void create_questionWithoutAnswer() throws Exception {
+        JobListingRequest request = new JobListingRequest(
+                "Java Dev",
+                JobType.FULL_TIME,
+                "Remote",
+                "Join us to build APIs",
+                "Design, build, and ship high-quality REST APIs.",
+                "5+ years Java, Spring Boot, MySQL.",
+                "Experience with Kafka and AWS.",
+                JobStatus.OPEN,
+                30,
+                80,
+                null,
+                List.of(new JobQuestionRequest(
+                        "How would you recover this service after a failed deployment?",
+                        " "
+                ))
+        );
+
+        mockMvc.perform(post("/api/v1/jobs")
+                        .with(user(principalFor(hManager)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Answer is required")));
+
+        assertThat(jobListingRepository.findAll()).isEmpty();
     }
 
     @Test
@@ -296,6 +381,63 @@ class JobListingControllerTest {
                 .andExpect(jsonPath("$.data.title").value("Java Dev"))
                 .andExpect(jsonPath("$.data.type").value("FULL_TIME"))
                 .andExpect(jsonPath("$.data.status").value("OPEN"));
+    }
+
+    @Test
+    @DisplayName("Should replace job questions on update")
+    void update_questions() throws Exception {
+        JobListing job = new JobListing();
+        job.setTitle("Old Title");
+        job.setType(JobType.PART_TIME);
+        job.setLocation("Lagos");
+        job.setSummary("Old summary");
+        job.setResponsibilities("Old responsibilities text.");
+        job.setRequiredQualifications("Old required qualifications text.");
+        job.setStatus(JobStatus.DRAFT);
+        job.setAutoRejectThreshold(20);
+        job.setAutoPassThreshold(70);
+        job.setCompany(company);
+        JobQuestion oldQuestion = new JobQuestion();
+        oldQuestion.setJobListing(job);
+        oldQuestion.setQuestion("Old question");
+        oldQuestion.setAnswer("Old answer");
+        job.getQuestions().add(oldQuestion);
+        job = jobListingRepository.save(job);
+
+        JobListingRequest request = new JobListingRequest(
+                "Java Dev",
+                JobType.FULL_TIME,
+                "Remote",
+                "Join us to build APIs",
+                "Design, build, and ship high-quality REST APIs.",
+                "5+ years Java, Spring Boot, MySQL.",
+                "Experience with Kafka and AWS.",
+                JobStatus.OPEN,
+                30,
+                80,
+                null,
+                List.of(shortAnswerQuestion())
+        );
+
+        mockMvc.perform(put("/api/v1/jobs/" + job.getId())
+                        .with(user(principalFor(hManager)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.questions.length()").value(1))
+                .andExpect(jsonPath("$.data.questions[0].question").value(shortAnswerQuestion().getQuestion()))
+                .andExpect(jsonPath("$.data.questions[0].answer").doesNotExist());
+
+        assertThat(questionCountFor(job.getId())).isEqualTo(1);
+    }
+
+    private Long questionCountFor(String jobId) {
+        return entityManager.createQuery(
+                        "select count(question) from JobQuestion question where question.jobListing.id = :jobId",
+                        Long.class
+                )
+                .setParameter("jobId", jobId)
+                .getSingleResult();
     }
 
     @Test

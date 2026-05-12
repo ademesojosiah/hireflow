@@ -2,6 +2,7 @@ package com.hireflow.hireflow.dto.request;
 
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -12,6 +13,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.util.Set;
+import java.util.List;
 
 @Getter
 @NoArgsConstructor
@@ -53,4 +55,36 @@ public class JobListingRequest {
     private Integer autoPassThreshold;
 
     private Set<String> skillIds;
+
+    @Valid
+    private List<JobQuestionRequest> questions;
+
+    public JobListingRequest(
+            String title,
+            JobType type,
+            String location,
+            String summary,
+            String responsibilities,
+            String requiredQualifications,
+            String preferredQualifications,
+            JobStatus status,
+            Integer autoRejectThreshold,
+            Integer autoPassThreshold,
+            Set<String> skillIds
+    ) {
+        this(
+                title,
+                type,
+                location,
+                summary,
+                responsibilities,
+                requiredQualifications,
+                preferredQualifications,
+                status,
+                autoRejectThreshold,
+                autoPassThreshold,
+                skillIds,
+                null
+        );
+    }
 }

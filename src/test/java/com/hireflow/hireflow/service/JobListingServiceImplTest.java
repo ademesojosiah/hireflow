@@ -6,6 +6,7 @@ import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.JobListingRepository;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
+import com.hireflow.hireflow.dto.request.JobQuestionRequest;
 import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
 import com.hireflow.hireflow.enums.JobStatus;
@@ -135,6 +136,23 @@ class JobListingServiceImplTest {
         );
     }
 
+    private JobListingRequest requestWithQuestions(List<JobQuestionRequest> questions) {
+        return new JobListingRequest(
+                "Java Dev",
+                JobType.FULL_TIME,
+                "Remote",
+                "Join us to build APIs",
+                "Design, build, and ship high-quality REST APIs.",
+                "5+ years Java, Spring Boot, MySQL.",
+                "Experience with Kafka and AWS.",
+                JobStatus.OPEN,
+                30,
+                80,
+                null,
+                questions
+        );
+    }
+
     @Test
     @DisplayName("Should create a job listing for the manager's own company")
     void create_success() {
@@ -238,6 +256,49 @@ class JobListingServiceImplTest {
         verify(skillService).findAllByIds(ids);
         verify(jobListingMapper).toEntity(payload, company, resolved);
         verify(jobListingRepository).save(fullStackJob);
+    }
+
+    @Test
+    @DisplayName("Should create a job listing with role-specific questions and answers")
+    void create_withQuestions() {
+        JobListingRequest withQuestions = requestWithQuestions(List.of(
+                new JobQuestionRequest(
+                        "Explain how you would design a rate-limited REST API.",
+                        "Use a token bucket or leaky bucket strategy backed by Redis."
+                ),
+                new JobQuestionRequest(
+                        "How would you keep authorization checks fast and correct?",
+                        "Cache permission reads briefly and invalidate on role changes."
+                )
+        ));
+
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+        when(jobListingMapper.toEntity(eq(withQuestions), eq(company), anyList())).thenReturn(job);
+        when(jobListingRepository.save(job)).thenReturn(job);
+        when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
+
+        jobListingService.create(withQuestions, hManager);
+
+        verify(jobListingMapper).toEntity(eq(withQuestions), eq(company), anyList());
+        verify(jobListingRepository).save(job);
+    }
+
+    @Test
+    @DisplayName("Should reject a question without an answer")
+    void create_questionWithoutAnswer() {
+        JobListingRequest invalid = requestWithQuestions(List.of(
+                new JobQuestionRequest(
+                        "How would you recover this service after a failed deployment?",
+                        " "
+                )
+        ));
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+
+        assertThatThrownBy(() -> jobListingService.create(invalid, hManager))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Answer is required");
+
+        verify(jobListingRepository, never()).save(any());
     }
 
     @Test
