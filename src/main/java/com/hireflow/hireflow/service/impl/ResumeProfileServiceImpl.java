@@ -93,6 +93,12 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
     }
 
     @Override
+    public ResumeProfile findProfileByUserId(String userId) {
+        return resumeProfileRepository.findByUser_Id(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Resume profile not found"));
+    }
+
+    @Override
     @Transactional
     public void deleteMyProfile(User user) {
         try {

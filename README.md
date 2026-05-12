@@ -68,6 +68,34 @@ Key conventions:
 - **DTOs at the boundary**: entities never leak past the service layer — controllers consume request/response DTOs only.
 - **Mappers, not builders**: object conversion lives in `@Component` mapper classes, never inline.
 
+### Microservices Topology (Planned v3.1+)
+
+HireFlow is designed for a three-service split where only one service owns the database:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│            Application Service  (owns DB)               │
+│  users · companies · job_listings · resume_profiles     │
+│  applications · ai_screening_results · notifications    │
+└────────────┬──────────────────────────┬─────────────────┘
+             │  Kafka events             │  Kafka events
+             ▼                           ▼
+┌────────────────────────┐   ┌──────────────────────────┐
+│  AI Screening Service  │   │   Notification Service   │
+│  (stateless worker)    │   │   (stateless worker)     │
+│  no DB — retries via   │   │   no DB — retries via    │
+│  Kafka retry/DLQ       │   │   Kafka retry/DLQ        │
+└────────────────────────┘   └──────────────────────────┘
+```
+
+| Service | Owns DB | Responsibility |
+|---|---|---|
+| **Application Service** | YES | All persistence; emits domain events |
+| **AI Screening Service** | NO | Consumes `ApplicationSubmitted`; publishes `ScreeningCompleted` / `ScreeningFailed` |
+| **Notification Service** | NO | Consumes stage-change events; sends email/SMS; publishes `NotificationSent` |
+
+This keeps the database boundary clean. The AI and Notification services are stateless processing workers — if they fail, Kafka retries the message. If their failure needs to be recorded (e.g. `ScreeningFailed`), they publish an event and the Application Service writes the result.
+
 ### Entity Relationship Diagram (Current v3.0 State)
 
 > **MAINTENANCE RULE**: This ERD MUST be updated whenever an entity is added, removed, or its fields/relationships change. Drift between the diagram and the code is treated as a bug.

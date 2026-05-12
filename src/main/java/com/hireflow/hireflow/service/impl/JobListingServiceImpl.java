@@ -86,6 +86,12 @@ public class JobListingServiceImpl implements JobListingService {
     }
 
     @Override
+    public JobListing findJobListingById(String id) {
+        return jobListingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Job listing not found"));
+    }
+
+    @Override
     public Page<JobListingResponse> findByCompany(String companyId, JobStatus status, Pageable pageable) {
         Page<JobListing> page = (status == null)
                 ? jobListingRepository.findAllByCompany_Id(companyId, pageable)

@@ -1,6 +1,7 @@
 package com.hireflow.hireflow.service;
 
 import com.hireflow.hireflow.data.model.User;
+import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.dto.request.JobListingRequest;
 import com.hireflow.hireflow.dto.response.JobListingFilterResponse;
 import com.hireflow.hireflow.dto.response.JobListingResponse;
@@ -16,6 +17,8 @@ public interface JobListingService {
     JobListingResponse update(String id, JobListingRequest request, User user);
 
     JobListingResponse findById(String id);
+
+    JobListing findJobListingById(String id);
 
     Page<JobListingResponse> findByCompany(String companyId, JobStatus status, Pageable pageable);
 

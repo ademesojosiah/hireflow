@@ -1,5 +1,6 @@
 package com.hireflow.hireflow.service;
 
+import com.hireflow.hireflow.data.model.ResumeProfile;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.dto.request.ResumeProfileRequest;
 import com.hireflow.hireflow.dto.response.ResumeProfileResponse;
@@ -11,6 +12,8 @@ public interface ResumeProfileService {
     ResumeProfileResponse getMyProfile(User user);
 
     ResumeProfileResponse findByUserId(String userId);
+
+    ResumeProfile findProfileByUserId(String userId);
 
     void deleteMyProfile(User user);
 }
