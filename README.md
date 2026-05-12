@@ -33,7 +33,8 @@ HireFlow is a hiring management platform designed to help companies streamline t
 | Persistence      | Spring Data JPA / Hibernate                |
 | Database         | MySQL 8                                    |
 | Mapping          | ModelMapper 3.1.1 + dedicated mappers      |
-| Mail             | Spring Mail (JavaMailSender, Gmail SMTP)   |
+| Messaging        | Spring Kafka                               |
+| Notifications    | Kafka events to Notification service       |
 | Async            | Spring `@Async` with custom executor       |
 | Build            | Maven                                      |
 | Testing          | JUnit 5, Mockito, AssertJ, MockMvc         |
@@ -44,8 +45,11 @@ HireFlow is a hiring management platform designed to help companies streamline t
 
 - **JWT-based authentication** — stateless sessions, signed tokens, configurable expiration.
 - **OTP email verification** — 6-digit codes, 10-minute expiry, automatic regeneration on expired-OTP login attempts.
-- **Asynchronous email delivery** — emails are dispatched on a dedicated thread pool so request handlers never block on SMTP I/O.
+- **Kafka-backed notifications** — email requests are emitted as notification events for the Notification service; request handlers never send SMTP directly.
 - **Role-based access control** — `APPLICANT`, `HMANAGER`, `ADMIN`.
+- **Candidate applications** — applicants can apply to open jobs, see their applications, and hiring teams can list applications by job.
+- **Kafka-backed AI screening** — application submission publishes an AI screening event; completed screening results are consumed back into HireFlow.
+- **Role-specific job questions** — admins and hiring managers can add simple technical questions and internal answer guides while creating or updating a job.
 - **Direct-to-Cloudinary signed uploads** — the backend generates a short-lived Cloudinary signature; the frontend uploads the file directly to Cloudinary and sends back only the resulting URL. The server never handles the file bytes.
 - **Centralised exception handling** — `@RestControllerAdvice` returns a consistent `ApiResponse` envelope for every error class.
 - **Comprehensive test coverage** — every service method and controller endpoint has both unit and full-stack integration tests.
@@ -59,7 +63,7 @@ HireFlow follows a clean, layered architecture:
 ```
 Controller  →  Service (interface)  →  Service Impl  →  Repository  →  DB
                        │
-                       └→ Mapper, EmailService, JwtUtil, etc.
+                       └→ Mapper, Kafka producers/consumers, JwtUtil, etc.
 ```
 
 Key conventions:
@@ -68,7 +72,7 @@ Key conventions:
 - **DTOs at the boundary**: entities never leak past the service layer — controllers consume request/response DTOs only.
 - **Mappers, not builders**: object conversion lives in `@Component` mapper classes, never inline.
 
-### Microservices Topology (Planned v3.1+)
+### Microservices Topology (In Progress v3.1+)
 
 HireFlow is designed for a three-service split where only one service owns the database:
 
@@ -92,11 +96,16 @@ HireFlow is designed for a three-service split where only one service owns the d
 |---|---|---|
 | **Application Service** | YES | All persistence; emits domain events |
 | **AI Screening Service** | NO | Consumes `ApplicationSubmitted`; publishes `ScreeningCompleted` / `ScreeningFailed` |
-| **Notification Service** | NO | Consumes stage-change events; sends email/SMS; publishes `NotificationSent` |
+| **Notification Service** | NO | Consumes notification/email events; sends email/SMS; publishes `NotificationSent` when needed |
+
+Current Kafka events implemented in this repository:
+- `EmailNotificationEvent` to the notification email topic
+- `ApplicationSubmittedEvent` to the AI screening topic
+- `ScreeningCompletedEvent` consumed back from the AI screening service
 
 This keeps the database boundary clean. The AI and Notification services are stateless processing workers — if they fail, Kafka retries the message. If their failure needs to be recorded (e.g. `ScreeningFailed`), they publish an event and the Application Service writes the result.
 
-### Entity Relationship Diagram (Current v3.0 State)
+### Entity Relationship Diagram (Current State)
 
 > **MAINTENANCE RULE**: This ERD MUST be updated whenever an entity is added, removed, or its fields/relationships change. Drift between the diagram and the code is treated as a bug.
 
@@ -150,6 +159,15 @@ erDiagram
         Integer autoRejectThreshold "0-100, required"
         Integer autoPassThreshold "0-100, required, GT autoReject"
         String company_id FK "required, indexed"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    JobQuestion {
+        String id PK "UUID"
+        String job_listing_id FK "required, indexed"
+        String question "TEXT, required"
+        String answer "TEXT, required, internal only"
         Instant createdAt
         Instant updatedAt
     }
@@ -211,24 +229,65 @@ erDiagram
         Instant updatedAt
     }
 
+    Application {
+        String id PK "UUID"
+        String applicant_id FK "required, indexed"
+        String job_listing_id FK "required, indexed"
+        String resume_profile_id FK "required"
+        String company_id "required, indexed"
+        ApplicationStage stage "enum: APPLIED|SCREENING|INTERVIEW_SCHEDULED|OFFER_SENT|HIRED|REJECTED"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    AiScreeningResult {
+        String id PK "UUID"
+        String application_id FK "unique, required, indexed"
+        Integer matchPercentage "0-100"
+        String aiNarrativeSummary "TEXT, internal only"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    StageUpdate {
+        String id PK "UUID"
+        String application_id FK "required, indexed"
+        ApplicationStage previousStage "nullable"
+        ApplicationStage currentStage "required"
+        String reason "required"
+        String actor "required"
+        Instant createdAt
+        Instant updatedAt
+    }
+
     Company ||--o{ JobListing : "owns (1:N, cascade ALL, orphanRemoval)"
     Company ||--o| User : "employs (1:1 via company_id, nullable for APPLICANT)"
     JobListing ||--o{ JobListingSkill : "has (1:N, cascade ALL, orphanRemoval)"
+    JobListing ||--o{ JobQuestion : "has questions (1:N, cascade ALL, orphanRemoval)"
+    JobListing ||--o{ Application : "receives applications (1:N)"
     Skill ||--o{ JobListingSkill : "appears in (1:N)"
     Skill ||--o{ ResumeProfileSkill : "appears in (1:N)"
     User ||--o| ResumeProfile : "has (1:1, FK on resume_profile)"
+    User ||--o{ Application : "submits (1:N)"
     ResumeProfile ||--o{ ResumeProfileSkill : "has (1:N, cascade ALL, orphanRemoval)"
     ResumeProfile ||--o{ WorkExperience : "has (1:N, cascade ALL, orphanRemoval)"
     ResumeProfile ||--o{ Education : "has (1:N, cascade ALL, orphanRemoval)"
+    ResumeProfile ||--o{ Application : "used for (1:N)"
+    Application ||--o{ StageUpdate : "records (1:N, cascade ALL, orphanRemoval)"
+    Application ||--o| AiScreeningResult : "has active result (1:0..1, cascade ALL, orphanRemoval)"
     BaseEntity ||--|| Company : "extends"
     BaseEntity ||--|| User : "extends"
     BaseEntity ||--|| JobListing : "extends"
+    BaseEntity ||--|| JobQuestion : "extends"
     BaseEntity ||--|| JobListingSkill : "extends"
     BaseEntity ||--|| Skill : "extends"
     BaseEntity ||--|| ResumeProfile : "extends"
     BaseEntity ||--|| ResumeProfileSkill : "extends"
     BaseEntity ||--|| WorkExperience : "extends"
     BaseEntity ||--|| Education : "extends"
+    BaseEntity ||--|| Application : "extends"
+    BaseEntity ||--|| AiScreeningResult : "extends"
+    BaseEntity ||--|| StageUpdate : "extends"
 ```
 
 #### Detailed Entity Reference
@@ -252,7 +311,7 @@ erDiagram
 
 Relationships:
 - `Company 1 ──< JobListing` (`@OneToMany`, `mappedBy="company"`, cascade ALL, orphanRemoval)
-- `User many ─> Company` (FK on `User.company_id`)
+- `Company 1 ──0..1 User` (FK on `User.company_id`; current code uses `@OneToOne`)
 
 ---
 
@@ -272,7 +331,7 @@ Relationships:
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Relationships:
-- `User many ─> Company` (`@ManyToOne(fetch=LAZY)`, `@JoinColumn(name="company_id", nullable=true)`)
+- `User 0..1 ─> Company` (`@OneToOne(fetch=LAZY)`, `@JoinColumn(name="company_id", nullable=true)`)
 - `User 1 ──1 ResumeProfile` (FK sits on `resume_profiles.user_id`; `User` holds no back-reference)
 
 ---
@@ -299,6 +358,8 @@ Indexes: `idx_job_company` on `company_id`, `idx_job_status` on `status`
 Relationships:
 - `JobListing many ─> Company` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
 - `JobListing 1 ──< JobListingSkill` (`@OneToMany`, `mappedBy="jobListing"`, cascade ALL, orphanRemoval)
+- `JobListing 1 ──< JobQuestion` (`@OneToMany`, `mappedBy="jobListing"`, cascade ALL, orphanRemoval)
+- `JobListing 1 ──< Application` (applications reference the job through `Application.jobListing`)
 
 ---
 
@@ -316,6 +377,23 @@ Indexes: `idx_jls_job` on `job_listing_id`, `idx_jls_skill` on `skill_id`
 Relationships:
 - `JobListingSkill many ─> JobListing` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
 - `JobListingSkill many ─> Skill` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
+
+---
+
+**`job_questions`** — role-specific technical questions owned by a job listing
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `job_listing_id` | UUID | FK -> `job_listings.id`, NOT NULL, indexed (`idx_job_question_job`) | back-reference |
+| `question` | TEXT | NOT NULL | candidate-facing prompt |
+| `answer` | TEXT | NOT NULL | internal answer guide; not exposed in public/job responses |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Relationships:
+- `JobQuestion many -> JobListing` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
+- `JobListing 1:N JobQuestion` is managed through cascade ALL and orphanRemoval.
+
+Service rule: job questions are intentionally simple. Create/update accepts `question` + `answer`; updating a job with a non-null `questions` list replaces the existing child list.
 
 ---
 
@@ -347,7 +425,7 @@ Relationships:
 Constraints: `uk_resume_profile_user` on `user_id`
 
 Relationships:
-- `ResumeProfile many ─> User` (`@OneToOne(fetch=LAZY)`, FK on this table)
+- `ResumeProfile 1 ─> User` (`@OneToOne(fetch=LAZY)`, FK on this table)
 - `ResumeProfile 1 ──< ResumeProfileSkill` (`@OneToMany`, cascade ALL, orphanRemoval)
 - `ResumeProfile 1 ──< WorkExperience` (`@OneToMany`, cascade ALL, orphanRemoval)
 - `ResumeProfile 1 ──< Education` (`@OneToMany`, cascade ALL, orphanRemoval)
@@ -407,6 +485,59 @@ Relationships:
 
 ---
 
+**`applications`** — candidate application records
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `applicant_id` | UUID | FK -> `users.id`, NOT NULL, indexed | applicant user |
+| `job_listing_id` | UUID | FK -> `job_listings.id`, NOT NULL, indexed | target job |
+| `resume_profile_id` | UUID | FK -> `resume_profiles.id`, NOT NULL | resume snapshot source for screening |
+| `company_id` | UUID/String | NOT NULL, indexed (`idx_application_company`) | denormalized tenant boundary from job company |
+| `stage` | ENUM (STRING) | NOT NULL | `APPLIED`, `SCREENING`, `INTERVIEW_SCHEDULED`, `OFFER_SENT`, `HIRED`, `REJECTED` |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `UNIQUE (applicant_id, job_listing_id)` — `uk_application_applicant_job`
+
+Relationships:
+- `Application many -> User` through `applicant`
+- `Application many -> JobListing`
+- `Application many -> ResumeProfile`
+- `Application 1:N StageUpdate` (`@OneToMany`, cascade ALL, orphanRemoval)
+- `Application 1:0..1 AiScreeningResult` (`@OneToOne`, cascade ALL, orphanRemoval)
+
+---
+
+**`ai_screening_results`** — normalized AI screening result for an application
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `application_id` | UUID | FK -> `applications.id`, UNIQUE, NOT NULL, indexed | one active result per application |
+| `matchPercentage` | INT | NOT NULL, 0-100 | validates AI score |
+| `aiNarrativeSummary` | TEXT | nullable | internal-only screening explanation |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Element collections:
+- `ai_screening_matched_skills(result_id, skill)`
+- `ai_screening_unmatched_skills(result_id, skill)`
+
+---
+
+**`stage_updates`** — application stage audit entries
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `application_id` | UUID | FK -> `applications.id`, NOT NULL, indexed (`idx_stage_update_application`) | parent application |
+| `previousStage` | ENUM (STRING) | nullable | null for first audit entry |
+| `currentStage` | ENUM (STRING) | NOT NULL | stage after the transition |
+| `reason` | VARCHAR | NOT NULL | human-readable transition reason |
+| `actor` | VARCHAR | NOT NULL | user email or system actor |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Relationships:
+- `StageUpdate many -> Application` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
+
+---
+
 #### Cardinality Summary
 
 | Relationship | Cardinality | Owning Side | Cascade |
@@ -414,16 +545,22 @@ Relationships:
 | Company → JobListing | 1 : N | `JobListing.company` | ALL, orphanRemoval |
 | Company → User | 1 : 0..1 (per current code) | `User.company` | none |
 | JobListing → JobListingSkill | 1 : N | `JobListingSkill.jobListing` | ALL, orphanRemoval |
+| JobListing → JobQuestion | 1 : N | `JobQuestion.jobListing` | ALL, orphanRemoval |
+| JobListing → Application | 1 : N | `Application.jobListing` | none |
 | Skill → JobListingSkill | 1 : N | `JobListingSkill.skill` | none |
 | User → ResumeProfile | 1 : 0..1 | `ResumeProfile.user` (FK on weaker side) | none |
+| User → Application | 1 : N | `Application.applicant` | none |
+| ResumeProfile → Application | 1 : N | `Application.resumeProfile` | none |
 | ResumeProfile → ResumeProfileSkill | 1 : N | `ResumeProfileSkill.resumeProfile` | ALL, orphanRemoval |
 | ResumeProfile → WorkExperience | 1 : N | `WorkExperience.resumeProfile` | ALL, orphanRemoval |
 | ResumeProfile → Education | 1 : N | `Education.resumeProfile` | ALL, orphanRemoval |
 | Skill → ResumeProfileSkill | 1 : N | `ResumeProfileSkill.skill` | none |
+| Application → StageUpdate | 1 : N | `StageUpdate.application` | ALL, orphanRemoval |
+| Application → AiScreeningResult | 1 : 0..1 | `AiScreeningResult.application` | ALL, orphanRemoval |
 
 #### Planned Entities (v3.1+)
 
-`Application`, `AIScreeningResult`, `InterviewSlot`, `StageUpdate` —
+`InterviewSlot`, assessment/session entities, applicant technical answers, and future recommendation/audit expansion.
 
 
 ---
@@ -442,6 +579,10 @@ src/main/java/com/hireflow/hireflow
 │   ├── request         # Validated request payloads
 │   └── response        # ApiResponse<T>, AuthResponse, ...
 ├── enums               # Role, etc.
+├── event
+│   ├── consumer        # Kafka listeners
+│   ├── events          # Event payloads
+│   └── producer        # Kafka producer interfaces + implementations
 ├── exception           # Custom exceptions + GlobalExceptionHandler
 ├── mapper              # Entity ↔ DTO conversion
 ├── security
@@ -449,8 +590,10 @@ src/main/java/com/hireflow/hireflow
 │   ├── service         # UserPrincipalService
 │   └── util            # JwtUtil
 └── service
-    ├── AuthService, EmailService, UserService     # interfaces
-    └── impl                                       # implementations
+    ├── result             # service result objects
+    ├── upload             # upload integration boundary
+    ├── AuthService, ApplicationService, UserService
+    └── impl               # implementations and transactional helpers
 ```
 
 ---
@@ -462,7 +605,7 @@ src/main/java/com/hireflow/hireflow
 - **JDK 21** (any Temurin/Adoptium 21 build is fine)
 - **Maven 3.9+**
 - **MySQL 8** running locally (or accessible remotely)
-- **A Gmail account with an [App Password](https://support.google.com/accounts/answer/185833)** for outbound SMTP
+- **Kafka** running locally or available through `KAFKA_BOOTSTRAP_SERVERS`
 
 ### Clone & install
 
@@ -498,11 +641,15 @@ DB_URL=jdbc:mysql://localhost:3306/hireflow
 DB_URL_TEST=jdbc:mysql://localhost:3306/hireflow_test_db
 JWT_SECRET=at-least-256-bits-of-secret-material
 JWT_EXPIRATION=86400000
-MAIL_USERNAME=your.email@gmail.com
-MAIL_PASSWORD=your_gmail_app_password
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+HIREFLOW_KAFKA_GROUP_ID=hireflow
+NOTIFICATION_EMAIL_TOPIC=notification.email
+APPLICATION_SUBMITTED_TOPIC=application.submitted
+SCREENING_COMPLETED_TOPIC=screening.completed
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
-
-> **Gmail note:** The `MAIL_PASSWORD` must be a Gmail **App Password** (16 chars, no spaces). Regular account passwords will be rejected by Google's SMTP since 2022.
 
 ---
 
@@ -580,7 +727,7 @@ mvn test -Dtest=AuthServiceImplTest
 
 - **Every** service method has a Mockito-based unit test covering happy path, validation failures, and exceptional flows.
 - **Every** controller endpoint has a `@SpringBootTest` integration test that exercises the full controller → service → repository → DB chain via `MockMvc`.
-- The mailer is mocked with `@MockBean JavaMailSender` in integration tests so test runs never connect to SMTP.
+- Kafka producers/consumers should be mocked or test-configured so integration tests do not require a live broker unless the test explicitly covers Kafka wiring.
 
 ---
 
