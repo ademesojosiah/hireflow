@@ -198,6 +198,20 @@ class ApplicationControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 404 when applicant applies to an unknown job")
+    void applyToJob_unknownJob() throws Exception {
+        saveResumeProfile(applicant, List.of(java));
+
+        mockMvc.perform(post("/api/v1/applications/jobs/missing-job")
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Job listing not found")));
+
+        assertThat(applicationRepository.findAll()).isEmpty();
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
+    }
+
+    @Test
     @DisplayName("Should return only the signed-in applicant's applications")
     void findMyApplications_success() throws Exception {
         JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
@@ -226,6 +240,16 @@ class ApplicationControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 400 for invalid applicant application pagination")
+    void findMyApplications_invalidPagination() throws Exception {
+        mockMvc.perform(get("/api/v1/applications")
+                        .param("size", "0")
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
     @DisplayName("Should let an applicant fetch their own application by id")
     void findMyApplication_success() throws Exception {
         JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
@@ -250,6 +274,15 @@ class ApplicationControllerTest {
         mockMvc.perform(get("/api/v1/applications/" + otherApplication.getId())
                         .with(user(principalFor(applicant))))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Should return 404 when applicant fetches an unknown application")
+    void findMyApplication_unknownId() throws Exception {
+        mockMvc.perform(get("/api/v1/applications/missing-application")
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Application not found")));
     }
 
     @Test
@@ -290,6 +323,18 @@ class ApplicationControllerTest {
         mockMvc.perform(get("/api/v1/applications/jobs/" + job.getId())
                         .with(user(principalFor(applicant))))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Should return 403 when manager has no company while listing job applications")
+    void findByJob_managerWithoutCompany() throws Exception {
+        User managerWithoutCompany = saveUser("no-company-manager@example.com", Role.HMANAGER, null);
+        JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
+
+        mockMvc.perform(get("/api/v1/applications/jobs/" + job.getId())
+                        .with(user(principalFor(managerWithoutCompany))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("belong to a company")));
     }
 
     private UserPrincipal principalFor(User user) {

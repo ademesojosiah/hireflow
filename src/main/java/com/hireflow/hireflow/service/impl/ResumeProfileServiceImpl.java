@@ -121,7 +121,7 @@ public class ResumeProfileServiceImpl implements ResumeProfileService {
             throw new AccessDeniedException("Authentication required");
         }
         User refreshed = userService.findUserById(user.getId());
-        if (refreshed.getRole() != Role.APPLICANT) {
+        if (refreshed == null || refreshed.getRole() != Role.APPLICANT) {
             throw new AccessDeniedException("Only applicants can manage a resume profile");
         }
         return refreshed;

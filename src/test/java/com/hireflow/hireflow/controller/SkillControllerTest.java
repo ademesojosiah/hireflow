@@ -99,6 +99,36 @@ class SkillControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 400 when creating a blank skill")
+    void create_blankName() throws Exception {
+        SkillRequest request = new SkillRequest("   ");
+
+        mockMvc.perform(post("/api/v1/skills")
+                        .with(user(principalFor(adminUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Skill name is required")));
+
+        assertThat(skillRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should return 403 when applicant attempts to create a skill")
+    void create_forbiddenForApplicant() throws Exception {
+        SkillRequest request = new SkillRequest("Scala");
+
+        mockMvc.perform(post("/api/v1/skills")
+                        .with(user(principalFor(applicantUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+
+        assertThat(skillRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should search skills by a three-character prefix")
     void search_success() throws Exception {
         saveSkill("ZedAlpha");
@@ -123,5 +153,15 @@ class SkillControllerTest {
                 .with(user(principalFor(applicantUser))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("Should return 400 when search query is missing")
+    void search_missingQuery() throws Exception {
+        mockMvc.perform(get("/api/v1/skills/search")
+                        .with(user(principalFor(applicantUser))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("query is required"));
     }
 }

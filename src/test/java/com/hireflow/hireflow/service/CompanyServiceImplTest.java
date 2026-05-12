@@ -19,8 +19,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +97,23 @@ class CompanyServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should trim company name before duplicate check and persistence")
+    void create_trimsCompanyName() {
+        CompanyRequest paddedRequest = new CompanyRequest("  Acme  ", "Tech", "https://acme.io", null, "1-50");
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
+        when(companyRepository.existsByNameIgnoreCase("Acme")).thenReturn(false);
+        when(companyMapper.toEntity(paddedRequest)).thenReturn(company);
+        when(companyRepository.save(company)).thenReturn(company);
+        when(companyMapper.toResponse(company)).thenReturn(new CompanyResponse("company-id", "Acme", "Tech", null, null, null));
+
+        companyService.create(paddedRequest, adminUser);
+
+        assertThat(paddedRequest.getName()).isEqualTo("Acme");
+        verify(companyRepository).existsByNameIgnoreCase("Acme");
+        verify(companyMapper).toEntity(paddedRequest);
+    }
+
+    @Test
     @DisplayName("Should throw AccessDeniedException when non-admin tries to create company")
     void create_nonAdmin() {
         assertThatThrownBy(() -> companyService.create(request, applicantUser))
@@ -151,6 +172,24 @@ class CompanyServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should reject update when target company name is already used by another company")
+    void update_duplicateName() {
+        adminUser.setCompany(company);
+        CompanyRequest duplicateName = new CompanyRequest("Beta", "Tech", null, null, null);
+
+        when(userService.findUserById(adminUser.getId())).thenReturn(adminUser);
+        when(companyRepository.findById("company-id")).thenReturn(Optional.of(company));
+        when(companyRepository.existsByNameIgnoreCase("Beta")).thenReturn(true);
+
+        assertThatThrownBy(() -> companyService.update("company-id", duplicateName, adminUser))
+                .isInstanceOf(DuplicateResourceException.class)
+                .hasMessageContaining("already exists");
+
+        verify(companyMapper, never()).applyUpdate(any(), any());
+        verify(companyRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should throw AccessDeniedException when admin does not own the company")
     void update_notOwner() {
         Company otherCompany = new Company();
@@ -169,6 +208,43 @@ class CompanyServiceImplTest {
 
         assertThatThrownBy(() -> companyService.update("missing", request, adminUser))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("Should return company by id")
+    void findById_success() {
+        CompanyResponse expectedResponse = new CompanyResponse("company-id", "Acme", null, null, null, null);
+        when(companyRepository.findById("company-id")).thenReturn(Optional.of(company));
+        when(companyMapper.toResponse(company)).thenReturn(expectedResponse);
+
+        CompanyResponse response = companyService.findById("company-id");
+
+        assertThat(response).isEqualTo(expectedResponse);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when company id is unknown")
+    void findById_notFound() {
+        when(companyRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> companyService.findById("missing"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Company not found");
+    }
+
+    @Test
+    @DisplayName("Should return paginated company responses")
+    void findAll_success() {
+        PageRequest pageable = PageRequest.of(0, 10);
+        CompanyResponse response = new CompanyResponse("company-id", "Acme", null, null, null, null);
+        Page<Company> page = new PageImpl<>(List.of(company), pageable, 1);
+        when(companyRepository.findAll(pageable)).thenReturn(page);
+        when(companyMapper.toResponse(company)).thenReturn(response);
+
+        Page<CompanyResponse> result = companyService.findAll(pageable);
+
+        assertThat(result.getContent()).containsExactly(response);
+        assertThat(result.getTotalElements()).isEqualTo(1);
     }
 
     @Test

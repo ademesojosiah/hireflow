@@ -36,6 +36,9 @@ public class CompanyServiceImpl implements CompanyService {
     @Transactional
     public CompanyResponse create(CompanyRequest request, User user) {
         try {
+            if (user == null) {
+                throw new AccessDeniedException("Authentication required");
+            }
             user = userService.findUserById(user.getId());
             requireAdmin(user);
 
@@ -79,6 +82,9 @@ public class CompanyServiceImpl implements CompanyService {
     @Transactional
     public CompanyResponse update(String id, CompanyRequest request, User user) {
         try {
+            if (user == null) {
+                throw new AccessDeniedException("Authentication required");
+            }
             user = userService.findUserById(user.getId());
             Company company = companyRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Company not found"));
@@ -123,6 +129,9 @@ public class CompanyServiceImpl implements CompanyService {
     @Transactional
     public void delete(String id, User user) {
         try {
+            if (user == null) {
+                throw new AccessDeniedException("Authentication required");
+            }
             user = userService.findUserById(user.getId());
             Company company = companyRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Company not found"));

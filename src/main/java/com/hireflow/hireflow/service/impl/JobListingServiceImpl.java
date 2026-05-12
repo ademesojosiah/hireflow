@@ -132,6 +132,9 @@ public class JobListingServiceImpl implements JobListingService {
     }
 
     private Company requireCompanyManager(User user) {
+        if (user == null) {
+            throw new AccessDeniedException("Authentication required");
+        }
         user = userService.findUserById(user.getId());
         if (user == null || (user.getRole() != Role.ADMIN && user.getRole() != Role.HMANAGER)) {
             throw new AccessDeniedException("Only admins and hiring managers can manage job listings");

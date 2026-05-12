@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -167,6 +168,17 @@ class ApplicationServiceImplTest {
 
         verify(applicationRepository, never()).save(any());
         verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
+    }
+
+    @Test
+    @DisplayName("Should reject application submission without authentication")
+    void applyToJob_nullUser() {
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), null))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Authentication required");
+
+        verifyNoInteractions(jobListingService, resumeProfileService, aiScreeningEventProducer);
+        verify(applicationRepository, never()).save(any());
     }
 
     @Test
@@ -303,6 +315,37 @@ class ApplicationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should let an admin list applications for their company job")
+    void findByJob_adminSuccess() {
+        manager.setRole(Role.ADMIN);
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        ApplicationResponse mapped = new ApplicationResponse();
+        mapped.setId(application.getId());
+        PageRequest pageable = PageRequest.of(0, 5);
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
+        when(applicationRepository.findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable))
+                .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
+        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+
+        Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), manager, pageable);
+
+        assertThat(response.getContent()).containsExactly(mapped);
+    }
+
+    @Test
+    @DisplayName("Should reject job application listing without authentication")
+    void findByJob_nullUser() {
+        assertThatThrownBy(() -> applicationService.findByJob(job.getId(), null, PageRequest.of(0, 10)))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Authentication required");
+
+        verifyNoInteractions(jobListingService);
+        verify(applicationRepository, never()).findAllByJobListing_IdAndCompanyId(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("Should block managers from viewing applications for another company")
     void findByJob_wrongCompany() {
         JobListing otherCompanyJob = sampleJob(otherCompany, JobStatus.OPEN);
@@ -429,6 +472,20 @@ class ApplicationServiceImplTest {
                 .hasMessageContaining("Application not found");
 
         verify(applicationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should wrap unexpected screening persistence failures")
+    void processScreeningCompleted_unexpectedFailure() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        ScreeningCompletedEvent event = screeningCompleted(80);
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
+        when(applicationRepository.save(application)).thenThrow(new IllegalStateException("database unavailable"));
+
+        assertThatThrownBy(() -> applicationService.processScreeningCompleted(event))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Failed to process AI screening result");
     }
 
     private Application sampleApplication(ApplicationStage stage) {

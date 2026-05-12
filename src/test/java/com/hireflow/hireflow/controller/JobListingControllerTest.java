@@ -222,6 +222,55 @@ class JobListingControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 400 when job type enum is invalid")
+    void create_invalidJobType() throws Exception {
+        String payload = """
+                {
+                  "title": "Java Dev",
+                  "type": "NOT_A_JOB_TYPE",
+                  "location": "Remote",
+                  "summary": "Join us to build APIs",
+                  "responsibilities": "Design, build, and ship APIs.",
+                  "requiredQualifications": "Java and Spring Boot.",
+                  "status": "OPEN",
+                  "autoRejectThreshold": 30,
+                  "autoPassThreshold": 80
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/jobs")
+                        .with(user(principalFor(hManager)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+
+        assertThat(jobListingRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should return 400 when required job fields are missing")
+    void create_missingRequiredFields() throws Exception {
+        String payload = """
+                {
+                  "type": "FULL_TIME",
+                  "autoRejectThreshold": 10,
+                  "autoPassThreshold": 90
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/jobs")
+                        .with(user(principalFor(hManager)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Title is required")));
+
+        assertThat(jobListingRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should allow the owning company manager to update the job listing")
     void update_success() throws Exception {
         JobListing job = new JobListing();
@@ -285,6 +334,63 @@ class JobListingControllerTest {
                 .andExpect(jsonPath("$.data.totalElements").value(2))
                 .andExpect(jsonPath("$.data.totalPages").value(2))
                 .andExpect(jsonPath("$.data.size").value(1));
+    }
+
+    @Test
+    @DisplayName("Should return 400 when company job status filter is invalid")
+    void findByCompany_invalidStatusParam() throws Exception {
+        mockMvc.perform(get("/api/v1/jobs/company/" + company.getId())
+                        .param("status", "NOT_A_STATUS")
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("Should return 400 when pagination params are invalid")
+    void findAllOpen_invalidPagination() throws Exception {
+        mockMvc.perform(get("/api/v1/jobs")
+                        .param("page", "-1")
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("Should return the signed-in manager's own company job listings")
+    void findByMyCompany_success() throws Exception {
+        JobListing ownJob = new JobListing();
+        ownJob.setTitle("Own Company Job");
+        ownJob.setType(JobType.FULL_TIME);
+        ownJob.setSummary("Summary");
+        ownJob.setResponsibilities("Responsibilities");
+        ownJob.setRequiredQualifications("Qualifications");
+        ownJob.setStatus(JobStatus.OPEN);
+        ownJob.setAutoRejectThreshold(20);
+        ownJob.setAutoPassThreshold(70);
+        ownJob.setCompany(company);
+        jobListingRepository.save(ownJob);
+
+        Company otherCompany = new Company();
+        otherCompany.setName("Other Company");
+        otherCompany = companyRepository.save(otherCompany);
+        JobListing otherJob = new JobListing();
+        otherJob.setTitle("Other Company Job");
+        otherJob.setType(JobType.FULL_TIME);
+        otherJob.setSummary("Summary");
+        otherJob.setResponsibilities("Responsibilities");
+        otherJob.setRequiredQualifications("Qualifications");
+        otherJob.setStatus(JobStatus.OPEN);
+        otherJob.setAutoRejectThreshold(20);
+        otherJob.setAutoPassThreshold(70);
+        otherJob.setCompany(otherCompany);
+        jobListingRepository.save(otherJob);
+
+        mockMvc.perform(get("/api/v1/jobs/company")
+                        .with(user(principalFor(hManager))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content.length()").value(1))
+                .andExpect(jsonPath("$.data.content[0].title").value("Own Company Job"));
     }
 
     @Test

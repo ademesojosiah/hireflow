@@ -97,6 +97,22 @@ class CompanyControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 400 when company name is blank")
+    void create_blankName() throws Exception {
+        CompanyRequest request = new CompanyRequest("   ", "Tech", "https://acme.io", null, "1-50");
+
+        mockMvc.perform(post("/api/v1/companies")
+                        .with(user(principalFor(adminUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Name is required")));
+
+        assertThat(companyRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should return 409 when admin already owns a company and tries to create another")
     void create_adminAlreadyOwnsCompany() throws Exception {
         Company existing = new Company();
@@ -152,6 +168,29 @@ class CompanyControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Acme Inc"));
+    }
+
+    @Test
+    @DisplayName("Should return 409 when updating to another company's name")
+    void update_duplicateName() throws Exception {
+        Company company = new Company();
+        company.setName("Acme");
+        company = companyRepository.save(company);
+        Company existing = new Company();
+        existing.setName("Existing Name");
+        companyRepository.save(existing);
+
+        adminUser.setCompany(company);
+        userRepository.save(adminUser);
+
+        CompanyRequest request = new CompanyRequest("Existing Name", "Software", null, null, "50-100");
+
+        mockMvc.perform(put("/api/v1/companies/" + company.getId())
+                        .with(user(principalFor(adminUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("already exists")));
     }
 
     @Test

@@ -258,8 +258,22 @@ class JobListingServiceImplTest {
     @Test
     @DisplayName("Should throw AccessDeniedException when applicant tries to create a job listing")
     void create_forbiddenForApplicant() {
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+
         assertThatThrownBy(() -> jobListingService.create(request, applicant))
-                .isInstanceOf(AccessDeniedException.class);
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Only admins and hiring managers");
+        verify(jobListingRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should throw AccessDeniedException when creating without authentication")
+    void create_nullUser() {
+        assertThatThrownBy(() -> jobListingService.create(request, null))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Authentication required");
+
+        verifyNoInteractions(userService);
         verify(jobListingRepository, never()).save(any());
     }
 
@@ -267,8 +281,11 @@ class JobListingServiceImplTest {
     @DisplayName("Should throw AccessDeniedException when manager has no company")
     void create_managerWithoutCompany() {
         hManager.setCompany(null);
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+
         assertThatThrownBy(() -> jobListingService.create(request, hManager))
-                .isInstanceOf(AccessDeniedException.class);
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("belong to a company");
     }
 
     @Test
@@ -319,9 +336,11 @@ class JobListingServiceImplTest {
     void update_forbiddenForOtherCompany() {
         hManager.setCompany(otherCompany);
         when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
 
         assertThatThrownBy(() -> jobListingService.update("job-1", request, hManager))
-                .isInstanceOf(AccessDeniedException.class);
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("your own company");
     }
 
     @Test
@@ -376,6 +395,34 @@ class JobListingServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should return current manager's company job listings")
+    void findByCompanyForCurrentManager_success() {
+        Pageable pageable = PageRequest.of(0, 10);
+        Page<JobListing> page = new PageImpl<>(List.of(job), pageable, 1);
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+        when(jobListingRepository.findAllByCompany_Id("company-1", pageable)).thenReturn(page);
+        when(jobListingMapper.toResponse(job)).thenReturn(sampleResponse());
+
+        Page<JobListingResponse> result = jobListingService.findByCompany(null, hManager, pageable);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(companyService).findCompanyById("company-1");
+        verify(jobListingRepository).findAllByCompany_Id("company-1", pageable);
+    }
+
+    @Test
+    @DisplayName("Should normalize blank open-job title filter to null")
+    void findAllOpen_blankTitleFilter() {
+        Pageable pageable = PageRequest.of(0, 10);
+        when(jobListingRepository.findAllOpen(isNull(), eq(null), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        jobListingService.findAllOpen("   ", null, pageable);
+
+        verify(jobListingRepository).findAllOpen(isNull(), isNull(), eq(pageable));
+    }
+
+    @Test
     @DisplayName("Should return open job listings filtered by title and job type")
     void findAllOpen_filteredByTitleAndType() {
         Pageable pageable = PageRequest.of(0, 10);
@@ -394,9 +441,36 @@ class JobListingServiceImplTest {
     @DisplayName("Should throw AccessDeniedException when applicant tries to delete a job")
     void delete_forbiddenForApplicant() {
         when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
 
         assertThatThrownBy(() -> jobListingService.delete("job-1", applicant))
                 .isInstanceOf(AccessDeniedException.class);
+        verify(jobListingRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("Should throw AccessDeniedException when manager from another company tries to delete")
+    void delete_forbiddenForOtherCompany() {
+        hManager.setCompany(otherCompany);
+        when(jobListingRepository.findById("job-1")).thenReturn(Optional.of(job));
+        when(userService.findUserById(hManager.getId())).thenReturn(hManager);
+
+        assertThatThrownBy(() -> jobListingService.delete("job-1", hManager))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("your own company");
+
+        verify(jobListingRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when deleting an unknown job")
+    void delete_notFound() {
+        when(jobListingRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobListingService.delete("missing", hManager))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Job listing not found");
+
         verify(jobListingRepository, never()).delete(any());
     }
 }

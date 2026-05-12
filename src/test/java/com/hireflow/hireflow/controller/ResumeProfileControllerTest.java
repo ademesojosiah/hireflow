@@ -211,6 +211,71 @@ class ResumeProfileControllerTest {
     }
 
     @Test
+    @DisplayName("Should return 400 when nested work experience required fields are missing")
+    void upsert_invalidNestedWorkExperience() throws Exception {
+        ResumeProfileRequest request = new ResumeProfileRequest(
+                null, null, null, null, null, null,
+                List.of(new WorkExperienceRequest("", "Engineer", null, null, "x")),
+                List.of());
+
+        mockMvc.perform(put("/api/v1/resume-profiles")
+                        .with(user(principalFor(applicant)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Company name is required")))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Start date is required")));
+
+        assertThat(resumeProfileRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should return 400 when work-experience start date is in the future")
+    void upsert_futureWorkStartDate() throws Exception {
+        ResumeProfileRequest request = new ResumeProfileRequest(
+                null, null, null, null, null, null,
+                List.of(new WorkExperienceRequest(
+                        "Acme",
+                        "Engineer",
+                        LocalDate.now().plusDays(1),
+                        null,
+                        "x")),
+                List.of());
+
+        mockMvc.perform(put("/api/v1/resume-profiles")
+                        .with(user(principalFor(applicant)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("cannot be in the future")));
+
+        assertThat(resumeProfileRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should return 400 when education end date precedes start date")
+    void upsert_invalidEducationDates() throws Exception {
+        ResumeProfileRequest request = new ResumeProfileRequest(
+                null, null, null, null, null, null,
+                List.of(),
+                List.of(new EducationRequest(
+                        "MIT",
+                        "B.Sc Computer Science",
+                        LocalDate.of(2020, 9, 1),
+                        LocalDate.of(2020, 1, 1))));
+
+        mockMvc.perform(put("/api/v1/resume-profiles")
+                        .with(user(principalFor(applicant)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Education end date")));
+
+        assertThat(resumeProfileRepository.findAll()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should let a hiring manager retrieve an applicant's profile by user id")
     void findByUserId_hManager() throws Exception {
         Skill java = saveSkill("Java");
@@ -225,6 +290,14 @@ class ResumeProfileControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.userId").value(applicant.getId()))
                 .andExpect(jsonPath("$.data.email").value("john@example.com"));
+    }
+
+    @Test
+    @DisplayName("Should return 403 when applicant retrieves another user's profile by id")
+    void findByUserId_forbiddenForApplicant() throws Exception {
+        mockMvc.perform(get("/api/v1/resume-profiles/user/" + hManager.getId())
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isForbidden());
     }
 
     @Test

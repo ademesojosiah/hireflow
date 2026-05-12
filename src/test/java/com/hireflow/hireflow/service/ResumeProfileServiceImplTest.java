@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -153,6 +154,34 @@ class ResumeProfileServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should reject when work-experience start date is in the future")
+    void upsert_futureWorkStartDate() {
+        when(userService.findUserById("user-1")).thenReturn(applicant);
+        request.setWorkExperiences(List.of(
+                new WorkExperienceRequest("Acme", "Backend Developer", LocalDate.now().plusDays(1), null, "x")));
+
+        assertThatThrownBy(() -> resumeProfileService.upsertMyProfile(request, applicant))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("cannot be in the future");
+
+        verify(resumeProfileRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Should reject when education end date precedes start date")
+    void upsert_invalidEducationDates() {
+        when(userService.findUserById("user-1")).thenReturn(applicant);
+        request.setEducations(List.of(
+                new EducationRequest("MIT", "B.Sc CS", LocalDate.of(2020, 9, 1), LocalDate.of(2020, 1, 1))));
+
+        assertThatThrownBy(() -> resumeProfileService.upsertMyProfile(request, applicant))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Education end date must be on or after start date");
+
+        verify(resumeProfileRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should return the applicant's own profile via /me")
     void getMyProfile_success() {
         when(userService.findUserById("user-1")).thenReturn(applicant);
@@ -175,6 +204,48 @@ class ResumeProfileServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should reject getMyProfile when called by a non-applicant")
+    void getMyProfile_forbiddenForNonApplicant() {
+        when(userService.findUserById("user-2")).thenReturn(hManager);
+
+        assertThatThrownBy(() -> resumeProfileService.getMyProfile(hManager))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Only applicants");
+    }
+
+    @Test
+    @DisplayName("Should find a resume profile by user id")
+    void findByUserId_success() {
+        ResumeProfileResponse expected = new ResumeProfileResponse();
+        when(resumeProfileRepository.findByUser_Id("user-1")).thenReturn(Optional.of(profile));
+        when(resumeProfileMapper.toResponse(profile)).thenReturn(expected);
+
+        ResumeProfileResponse response = resumeProfileService.findByUserId("user-1");
+
+        assertThat(response).isSameAs(expected);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when profile user id is unknown")
+    void findByUserId_notFound() {
+        when(resumeProfileRepository.findByUser_Id("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> resumeProfileService.findByUserId("missing"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Resume profile not found");
+    }
+
+    @Test
+    @DisplayName("Should return profile entity by user id for application submission")
+    void findProfileByUserId_success() {
+        when(resumeProfileRepository.findByUser_Id("user-1")).thenReturn(Optional.of(profile));
+
+        ResumeProfile result = resumeProfileService.findProfileByUserId("user-1");
+
+        assertThat(result).isSameAs(profile);
+    }
+
+    @Test
     @DisplayName("Should delete the applicant's profile and cascade child rows")
     void delete_success() {
         when(userService.findUserById("user-1")).thenReturn(applicant);
@@ -183,5 +254,18 @@ class ResumeProfileServiceImplTest {
         resumeProfileService.deleteMyProfile(applicant);
 
         verify(resumeProfileRepository).delete(profile);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when deleting a missing profile")
+    void delete_notFound() {
+        when(userService.findUserById("user-1")).thenReturn(applicant);
+        when(resumeProfileRepository.findByUser_Id("user-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> resumeProfileService.deleteMyProfile(applicant))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Resume profile not found");
+
+        verify(resumeProfileRepository, never()).delete(any());
     }
 }
