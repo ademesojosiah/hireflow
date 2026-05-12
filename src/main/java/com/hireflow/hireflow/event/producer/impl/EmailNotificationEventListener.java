@@ -1,6 +1,7 @@
-package com.hireflow.hireflow.service.notification;
+package com.hireflow.hireflow.event.producer.impl;
 
-import com.hireflow.hireflow.event.EmailNotificationEvent;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -13,16 +14,16 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class EmailNotificationEventListener {
 
-    private final NotificationEventPublisher notificationEventPublisher;
+    private final NotificationEventProducer notificationEventProducer;
 
     @Async("notificationAsyncExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleEmailNotification(EmailNotificationEvent event) {
         switch (event.getType()) {
             case EmailNotificationEvent.OTP_VERIFICATION ->
-                    notificationEventPublisher.publishOtpEmail(event.getTo(), event.getOtp());
+                    notificationEventProducer.publishOtpEmail(event.getTo(), event.getOtp());
             case EmailNotificationEvent.COMPANY_WELCOME ->
-                    notificationEventPublisher.publishCompanyWelcomeEmail(
+                    notificationEventProducer.publishCompanyWelcomeEmail(
                             event.getTo(),
                             event.getFirstName(),
                             event.getCompanyName()

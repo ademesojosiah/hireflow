@@ -5,7 +5,7 @@ import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
-import com.hireflow.hireflow.event.EmailNotificationEvent;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.EmailNotVerifiedException;

@@ -20,7 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import com.hireflow.hireflow.service.notification.NotificationEventPublisher;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -38,7 +38,7 @@ class CompanyControllerTest {
     @Autowired private UserRepository userRepository;
     @Autowired private CompanyRepository companyRepository;
     @Autowired private PasswordEncoder passwordEncoder;
-    @MockitoBean private NotificationEventPublisher notificationEventPublisher;
+    @MockitoBean private NotificationEventProducer notificationEventProducer;
 
     private User adminUser;
     private User applicantUser;

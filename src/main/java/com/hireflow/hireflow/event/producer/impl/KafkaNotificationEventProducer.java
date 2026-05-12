@@ -1,7 +1,7 @@
-package com.hireflow.hireflow.kafka.impl;
+package com.hireflow.hireflow.event.producer.impl;
 
-import com.hireflow.hireflow.event.EmailNotificationEvent;
-import com.hireflow.hireflow.service.notification.NotificationEventPublisher;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KafkaNotificationEventPublisher implements NotificationEventPublisher {
+public class KafkaNotificationEventProducer implements NotificationEventProducer {
 
     private final KafkaTemplate<String, EmailNotificationEvent> kafkaTemplate;
 

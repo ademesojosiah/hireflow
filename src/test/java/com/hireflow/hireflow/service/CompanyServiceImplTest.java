@@ -6,7 +6,7 @@ import com.hireflow.hireflow.data.repository.CompanyRepository;
 import com.hireflow.hireflow.dto.request.CompanyRequest;
 import com.hireflow.hireflow.dto.response.CompanyResponse;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.event.EmailNotificationEvent;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.CompanyMapper;

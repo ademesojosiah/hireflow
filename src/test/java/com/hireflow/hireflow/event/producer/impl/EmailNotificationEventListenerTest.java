@@ -1,6 +1,7 @@
-package com.hireflow.hireflow.service.notification;
+package com.hireflow.hireflow.event.producer.impl;
 
-import com.hireflow.hireflow.event.EmailNotificationEvent;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -12,8 +13,8 @@ class EmailNotificationEventListenerTest {
     @Test
     @DisplayName("Should publish OTP email when OTP event is handled")
     void handleOtpEmailNotification() {
-        NotificationEventPublisher notificationEventPublisher = mock(NotificationEventPublisher.class);
-        EmailNotificationEventListener listener = new EmailNotificationEventListener(notificationEventPublisher);
+        NotificationEventProducer notificationEventProducer = mock(NotificationEventProducer.class);
+        EmailNotificationEventListener listener = new EmailNotificationEventListener(notificationEventProducer);
 
         listener.handleEmailNotification(new EmailNotificationEvent(
                 EmailNotificationEvent.OTP_VERIFICATION,
@@ -23,14 +24,14 @@ class EmailNotificationEventListenerTest {
                 null
         ));
 
-        verify(notificationEventPublisher).publishOtpEmail("user@example.com", "123456");
+        verify(notificationEventProducer).publishOtpEmail("user@example.com", "123456");
     }
 
     @Test
     @DisplayName("Should publish company welcome email when company welcome event is handled")
     void handleCompanyWelcomeEmailNotification() {
-        NotificationEventPublisher notificationEventPublisher = mock(NotificationEventPublisher.class);
-        EmailNotificationEventListener listener = new EmailNotificationEventListener(notificationEventPublisher);
+        NotificationEventProducer notificationEventProducer = mock(NotificationEventProducer.class);
+        EmailNotificationEventListener listener = new EmailNotificationEventListener(notificationEventProducer);
 
         listener.handleEmailNotification(new EmailNotificationEvent(
                 EmailNotificationEvent.COMPANY_WELCOME,
@@ -40,6 +41,6 @@ class EmailNotificationEventListenerTest {
                 "Acme"
         ));
 
-        verify(notificationEventPublisher).publishCompanyWelcomeEmail("admin@example.com", "Alice", "Acme");
+        verify(notificationEventProducer).publishCompanyWelcomeEmail("admin@example.com", "Alice", "Acme");
     }
 }

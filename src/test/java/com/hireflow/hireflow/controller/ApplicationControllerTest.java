@@ -19,14 +19,12 @@ import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.event.ApplicationSubmittedEvent;
+import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
 import com.hireflow.hireflow.security.UserPrincipal;
-import com.hireflow.hireflow.service.ai.AiScreeningEventPublisher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -38,6 +36,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -64,7 +63,7 @@ class ApplicationControllerTest {
     @Autowired private AiScreeningResultRepository aiScreeningResultRepository;
     @Autowired private PasswordEncoder passwordEncoder;
 
-    @MockitoBean private AiScreeningEventPublisher aiScreeningEventPublisher;
+    @MockitoBean private AiScreeningEventProducer aiScreeningEventProducer;
 
     private Company company;
     private Company otherCompany;
@@ -93,7 +92,7 @@ class ApplicationControllerTest {
 
     @AfterEach
     void cleanUp() {
-        reset(aiScreeningEventPublisher);
+        reset(aiScreeningEventProducer);
         deleteAllData();
     }
 
@@ -128,14 +127,17 @@ class ApplicationControllerTest {
         Application persisted = applications.getFirst();
         assertThat(persisted.getStage()).isEqualTo(ApplicationStage.SCREENING);
 
-        ArgumentCaptor<ApplicationSubmittedEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationSubmittedEvent.class);
-        verify(aiScreeningEventPublisher, timeout(1000)).publishApplicationSubmitted(eventCaptor.capture());
-        ApplicationSubmittedEvent event = eventCaptor.getValue();
-        assertThat(event.getApplicationId()).isEqualTo(persisted.getId());
-        assertThat(event.getJobSkills()).containsExactlyInAnyOrder("Java", "Kafka");
-        assertThat(event.getApplicantSkills()).containsExactly("Java");
-        assertThat(event.getAutoRejectThreshold()).isEqualTo(40);
-        assertThat(event.getAutoPassThreshold()).isEqualTo(75);
+        verify(aiScreeningEventProducer, timeout(1000)).publishApplicationSubmittedAsync(argThat(event ->
+                event != null
+                        && persisted.getId().equals(event.getApplicationId())
+                        && job.getId().equals(event.getJobListingId())
+                        && applicant.getId().equals(event.getApplicantId())
+                        && "ada@example.com".equals(event.getApplicantEmail())
+                        && event.getJobSkills().containsAll(List.of("Java", "Kafka"))
+                        && event.getApplicantSkills().equals(List.of("Java"))
+                        && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
+                        && Integer.valueOf(75).equals(event.getAutoPassThreshold())
+        ));
     }
 
     @Test
@@ -151,7 +153,7 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("already applied")));
 
         assertThat(applicationRepository.findAll()).hasSize(1);
-        verify(aiScreeningEventPublisher, never()).publishApplicationSubmitted(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -166,7 +168,7 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("not accepting applications")));
 
         assertThat(applicationRepository.findAll()).isEmpty();
-        verify(aiScreeningEventPublisher, never()).publishApplicationSubmitted(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -192,7 +194,7 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Resume profile not found")));
 
         assertThat(applicationRepository.findAll()).isEmpty();
-        verify(aiScreeningEventPublisher, never()).publishApplicationSubmitted(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test

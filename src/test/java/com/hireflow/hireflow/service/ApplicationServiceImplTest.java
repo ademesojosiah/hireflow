@@ -16,22 +16,20 @@ import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.event.ApplicationSubmittedEvent;
-import com.hireflow.hireflow.event.ScreeningCompletedEvent;
+import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
+import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.ApplicationMapper;
+import com.hireflow.hireflow.service.impl.ApplicationSubmissionPersistence;
 import com.hireflow.hireflow.service.impl.ApplicationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -39,10 +37,12 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -55,9 +55,9 @@ class ApplicationServiceImplTest {
     @Mock private UserService userService;
     @Mock private JobListingService jobListingService;
     @Mock private ResumeProfileService resumeProfileService;
-    @Mock private ApplicationEventPublisher applicationEventPublisher;
+    @Mock private AiScreeningEventProducer aiScreeningEventProducer;
     @Mock private ApplicationMapper applicationMapper;
-    @InjectMocks private ApplicationServiceImpl applicationService;
+    private ApplicationServiceImpl applicationService;
 
     private Company company;
     private Company otherCompany;
@@ -85,6 +85,23 @@ class ApplicationServiceImplTest {
 
         job = sampleJob(company, JobStatus.OPEN);
         resumeProfile = sampleResumeProfile(applicant);
+
+        ApplicationSubmissionPersistence applicationSubmissionPersistence = new ApplicationSubmissionPersistence(
+                applicationRepository,
+                userService,
+                jobListingService,
+                resumeProfileService,
+                applicationMapper
+        );
+        applicationService = new ApplicationServiceImpl(
+                applicationRepository,
+                aiScreeningResultRepository,
+                userService,
+                jobListingService,
+                aiScreeningEventProducer,
+                applicationMapper,
+                applicationSubmissionPersistence
+        );
     }
 
     @Test
@@ -97,9 +114,11 @@ class ApplicationServiceImplTest {
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
         when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
         when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(false);
+        AtomicReference<Application> savedApplication = new AtomicReference<>();
         when(applicationRepository.save(any(Application.class))).thenAnswer(invocation -> {
             Application saved = invocation.getArgument(0);
             saved.setId("application-1");
+            savedApplication.set(saved);
             return saved;
         });
         when(applicationMapper.toResponse(any(Application.class))).thenReturn(expected);
@@ -108,28 +127,32 @@ class ApplicationServiceImplTest {
 
         assertThat(response).isSameAs(expected);
 
-        ArgumentCaptor<Application> applicationCaptor = ArgumentCaptor.forClass(Application.class);
-        verify(applicationRepository).save(applicationCaptor.capture());
-        Application savedApplication = applicationCaptor.getValue();
-        assertThat(savedApplication.getApplicant()).isSameAs(applicant);
-        assertThat(savedApplication.getJobListing()).isSameAs(job);
-        assertThat(savedApplication.getResumeProfile()).isSameAs(resumeProfile);
-        assertThat(savedApplication.getCompanyId()).isEqualTo(company.getId());
-        assertThat(savedApplication.getStage()).isEqualTo(ApplicationStage.SCREENING);
-        assertThat(savedApplication.getStageUpdates())
+        assertThat(savedApplication.get().getApplicant()).isSameAs(applicant);
+        assertThat(savedApplication.get().getJobListing()).isSameAs(job);
+        assertThat(savedApplication.get().getResumeProfile()).isSameAs(resumeProfile);
+        assertThat(savedApplication.get().getCompanyId()).isEqualTo(company.getId());
+        assertThat(savedApplication.get().getStage()).isEqualTo(ApplicationStage.SCREENING);
+        assertThat(savedApplication.get().getStageUpdates())
                 .extracting("currentStage")
                 .containsExactly(ApplicationStage.APPLIED, ApplicationStage.SCREENING);
 
-        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(applicationEventPublisher).publishEvent(eventCaptor.capture());
-        assertThat(eventCaptor.getValue()).isInstanceOf(ApplicationSubmittedEvent.class);
-        ApplicationSubmittedEvent event = (ApplicationSubmittedEvent) eventCaptor.getValue();
-        assertThat(event.getApplicationId()).isEqualTo("application-1");
-        assertThat(event.getApplicantEmail()).isEqualTo("ada@example.com");
-        assertThat(event.getJobSkills()).containsExactly("Java", "Kafka");
-        assertThat(event.getApplicantSkills()).containsExactly("Java");
-        assertThat(event.getAutoRejectThreshold()).isEqualTo(40);
-        assertThat(event.getAutoPassThreshold()).isEqualTo(75);
+        verify(aiScreeningEventProducer).publishApplicationSubmittedAsync(argThat(event ->
+                event != null
+                        && "application-1".equals(event.getApplicationId())
+                        && "job-1".equals(event.getJobListingId())
+                        && "Backend Engineer".equals(event.getJobTitle())
+                        && "Build APIs".equals(event.getJobSummary())
+                        && "Java and Kafka".equals(event.getRequiredQualifications())
+                        && "Cloud experience".equals(event.getPreferredQualifications())
+                        && "applicant-1".equals(event.getApplicantId())
+                        && "ada@example.com".equals(event.getApplicantEmail())
+                        && "Backend engineer with Java experience".equals(event.getResumeSummary())
+                        && "https://cdn.example.com/resume.pdf".equals(event.getResumePdfUrl())
+                        && event.getJobSkills().equals(List.of("Java", "Kafka"))
+                        && event.getApplicantSkills().equals(List.of("Java"))
+                        && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
+                        && Integer.valueOf(75).equals(event.getAutoPassThreshold())
+        ));
     }
 
     @Test
@@ -143,7 +166,7 @@ class ApplicationServiceImplTest {
                 .hasMessageContaining("Only applicants");
 
         verify(applicationRepository, never()).save(any());
-        verify(applicationEventPublisher, never()).publishEvent(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -174,7 +197,7 @@ class ApplicationServiceImplTest {
                 .hasMessageContaining("already applied");
 
         verify(applicationRepository, never()).save(any());
-        verify(applicationEventPublisher, never()).publishEvent(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -190,7 +213,7 @@ class ApplicationServiceImplTest {
                 .hasMessageContaining("Resume profile");
 
         verify(applicationRepository, never()).save(any());
-        verify(applicationEventPublisher, never()).publishEvent(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test

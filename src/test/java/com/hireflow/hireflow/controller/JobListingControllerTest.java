@@ -3,7 +3,6 @@ package com.hireflow.hireflow.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.JobListing;
-import com.hireflow.hireflow.data.model.JobListingSkill;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.CompanyRepository;

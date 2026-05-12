@@ -1,4 +1,4 @@
-package com.hireflow.hireflow.event;
+package com.hireflow.hireflow.event.events;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

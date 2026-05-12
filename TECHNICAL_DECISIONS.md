@@ -250,6 +250,27 @@ Static resumes are not enough. Hiring teams need evidence of how applicants solv
 
 ---
 
+### 4. Microservices Database Ownership: Centralised in Application Service ✓
+
+Only the Application Service owns a database. The AI Screening Service and Notification Service are stateless processing workers with no database of their own.
+
+**Why:** Giving each microservice its own DB is the textbook advice, but it creates overhead that is not justified until a service's data access patterns genuinely diverge. At this stage, `ai_screening_results` and `notification_attempts` are naturally queried alongside `applications` — keeping them in one DB avoids distributed joins, dual writes, and cross-service transactions.
+
+**Service split:**
+
+| Service | DB | Role |
+|---|---|---|
+| Application Service | YES — owns all tables | Persistence authority; emits domain events |
+| AI Screening Service | NO | Consumes `ApplicationSubmitted`; runs AI; publishes `ScreeningCompleted` / `ScreeningFailed` |
+| Notification Service | NO | Consumes stage-change events; sends email/SMS; publishes `NotificationSent` |
+
+**Reliability without a DB:** Retry durability for the stateless services is provided by Kafka — retry topics with exponential backoff, dead-letter topics (DLTs) for poison messages. If AI screening fails, the AI service publishes `ScreeningFailed` and the Application Service marks the result as failed. No local DB required.
+
+**When to revisit:** Add a database to a stateless service only if its data access patterns require independent querying at scale, or compliance mandates a separate audit store with long-term retention.
+
+---
+
+## Part 2: General/Strategic Alignment
 ## 10. AI Inconsistency Scoring
 
 ### Problem

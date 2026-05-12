@@ -1,6 +1,6 @@
-package com.hireflow.hireflow.kafka;
+package com.hireflow.hireflow.event.consumer.impl;
 
-import com.hireflow.hireflow.event.ScreeningCompletedEvent;
+import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
 import com.hireflow.hireflow.service.ApplicationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

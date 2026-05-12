@@ -3,27 +3,24 @@ package com.hireflow.hireflow.service.impl;
 import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.JobListing;
-import com.hireflow.hireflow.data.model.ResumeProfile;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.enums.ApplicationStage;
-import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
+import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
+import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
 import com.hireflow.hireflow.mapper.ApplicationMapper;
-import com.hireflow.hireflow.event.ApplicationSubmittedEvent;
-import com.hireflow.hireflow.event.ScreeningCompletedEvent;
 import com.hireflow.hireflow.service.ApplicationService;
 import com.hireflow.hireflow.service.JobListingService;
-import com.hireflow.hireflow.service.ResumeProfileService;
 import com.hireflow.hireflow.service.UserService;
+import com.hireflow.hireflow.service.result.ApplicationSubmissionResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -42,36 +39,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final AiScreeningResultRepository aiScreeningResultRepository;
     private final UserService userService;
     private final JobListingService jobListingService;
-    private final ResumeProfileService resumeProfileService;
-    private final ApplicationEventPublisher applicationEventPublisher;
+    private final AiScreeningEventProducer aiScreeningEventProducer;
     private final ApplicationMapper applicationMapper;
+    private final ApplicationSubmissionPersistence applicationSubmissionPersistence;
 
     @Override
-    @Transactional
     public ApplicationResponse applyToJob(String jobId, User user) {
         try {
-            User applicant = requireApplicant(user);
-            JobListing job = jobListingService.findJobListingById(jobId);
-            validateOpenJob(job);
-            ResumeProfile resumeProfile = resumeProfileService.findProfileByUserId(applicant.getId());
-
-            if (applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())) {
-                throw new DuplicateResourceException("You have already applied to this job");
-            }
-
-            Application application = new Application();
-            application.setApplicant(applicant);
-            application.setJobListing(job);
-            application.setResumeProfile(resumeProfile);
-            application.setCompanyId(job.getCompany().getId());
-            application.setStage(ApplicationStage.SCREENING);
-            application.addStageUpdate(null, ApplicationStage.APPLIED, "Application submitted", applicant.getEmail());
-            application.addStageUpdate(ApplicationStage.APPLIED, ApplicationStage.SCREENING, "Queued for AI screening", "system");
-
-            Application saved = applicationRepository.save(application);
-            applicationEventPublisher.publishEvent(toSubmittedEvent(saved));
-
-            return applicationMapper.toResponse(saved);
+            ApplicationSubmissionResult result = applicationSubmissionPersistence.submit(jobId, user);
+            aiScreeningEventProducer.publishApplicationSubmittedAsync(result.getEvent());
+            return result.getResponse();
         } catch (AccessDeniedException | DuplicateResourceException | ResourceNotFoundException | CustomException ex) {
             log.error(ex.getMessage());
             throw ex;
@@ -82,7 +59,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Page<ApplicationResponse> findMyApplications(User user, Pageable pageable) {
         User applicant = requireApplicant(user);
         return applicationRepository.findAllByApplicant_Id(applicant.getId(), pageable)
@@ -90,7 +66,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public ApplicationResponse findMyApplication(String applicationId, User user) {
         User applicant = requireApplicant(user);
         Application application = applicationRepository.findByIdAndApplicant_Id(applicationId, applicant.getId())
@@ -99,7 +74,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public Page<ApplicationResponse> findByJob(String jobId, User user, Pageable pageable) {
         User manager = requireCompanyManager(user);
         JobListing job = jobListingService.findJobListingById(jobId);
@@ -172,12 +146,6 @@ public class ApplicationServiceImpl implements ApplicationService {
         return refreshed;
     }
 
-    private void validateOpenJob(JobListing job) {
-        if (job.getStatus() != JobStatus.OPEN) {
-            throw new CustomException("This job is not accepting applications");
-        }
-    }
-
     private ApplicationStage resolveScreeningStage(Application application, Integer matchPercentage) {
         int score = matchPercentage == null ? 0 : matchPercentage;
         JobListing job = application.getJobListing();
@@ -189,29 +157,6 @@ public class ApplicationServiceImpl implements ApplicationService {
             return ApplicationStage.INTERVIEW_SCHEDULED;
         }
         return ApplicationStage.SCREENING;
-    }
-
-    private ApplicationSubmittedEvent toSubmittedEvent(Application application) {
-        JobListing job = application.getJobListing();
-        ResumeProfile resumeProfile = application.getResumeProfile();
-        User applicant = application.getApplicant();
-
-        return new ApplicationSubmittedEvent(
-                application.getId(),
-                job.getId(),
-                job.getTitle(),
-                job.getSummary(),
-                job.getRequiredQualifications(),
-                job.getPreferredQualifications(),
-                applicant.getId(),
-                applicant.getEmail(),
-                resumeProfile.getSummary(),
-                resumeProfile.getResumePdfUrl(),
-                job.getSkills().stream().map(link -> link.getSkill().getName()).toList(),
-                resumeProfile.getSkills().stream().map(link -> link.getSkill().getName()).toList(),
-                job.getAutoRejectThreshold(),
-                job.getAutoPassThreshold()
-        );
     }
 
     private List<String> safeList(List<String> values) {

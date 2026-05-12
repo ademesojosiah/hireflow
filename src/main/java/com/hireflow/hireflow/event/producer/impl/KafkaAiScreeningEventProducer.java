@@ -1,22 +1,29 @@
-package com.hireflow.hireflow.kafka.impl;
+package com.hireflow.hireflow.event.producer.impl;
 
-import com.hireflow.hireflow.event.ApplicationSubmittedEvent;
-import com.hireflow.hireflow.service.ai.AiScreeningEventPublisher;
+import com.hireflow.hireflow.event.events.ApplicationSubmittedEvent;
+import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KafkaAiScreeningEventPublisher implements AiScreeningEventPublisher {
+public class KafkaAiScreeningEventProducer implements AiScreeningEventProducer {
 
     private final KafkaTemplate<String, ApplicationSubmittedEvent> kafkaTemplate;
 
     @Value("${hireflow.kafka.topics.application-submitted}")
     private String applicationSubmittedTopic;
+
+    @Async("notificationAsyncExecutor")
+    @Override
+    public void publishApplicationSubmittedAsync(ApplicationSubmittedEvent event) {
+        publishApplicationSubmitted(event);
+    }
 
     @Override
     public void publishApplicationSubmitted(ApplicationSubmittedEvent event) {
