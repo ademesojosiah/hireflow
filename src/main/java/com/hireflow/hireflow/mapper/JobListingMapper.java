@@ -14,7 +14,10 @@ import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -41,8 +44,8 @@ public class JobListingMapper {
         }
         response.setSkills(job.getSkills() == null ? List.of()
                 : job.getSkills().stream()
-                        .map(jls -> new SkillResponse(jls.getSkill().getId(), jls.getSkill().getName()))
-                        .toList());
+                  .map(jls -> new SkillResponse(jls.getSkill().getId(), jls.getSkill().getName()))
+                  .toList());
         return response;
     }
 
@@ -54,8 +57,8 @@ public class JobListingMapper {
         }
         response.setSkills(job.getSkills() == null ? List.of()
                 : job.getSkills().stream()
-                .map(jls -> new SkillResponse(jls.getSkill().getId(), jls.getSkill().getName()))
-                .toList());
+                  .map(jls -> new SkillResponse(jls.getSkill().getId(), jls.getSkill().getName()))
+                  .toList());
         return response;
     }
 
@@ -71,14 +74,42 @@ public class JobListingMapper {
         if (request.getAutoRejectThreshold() != null) job.setAutoRejectThreshold(request.getAutoRejectThreshold());
         if (request.getAutoPassThreshold() != null) job.setAutoPassThreshold(request.getAutoPassThreshold());
         if (skills != null) {
-            job.getSkills().clear();
-            attachSkills(job, skills);
+            syncSkills(job, skills);
         }
     }
 
     private void attachSkills(JobListing job, List<Skill> skills) {
         if (skills == null) return;
+        Set<String> seen = new HashSet<>();
         for (Skill skill : skills) {
+            if (skill == null || skill.getId() == null) continue;
+            if (!seen.add(skill.getId())) continue; // de-dupe within payload
+            JobListingSkill link = new JobListingSkill();
+            link.setJobListing(job);
+            link.setSkill(skill);
+            job.getSkills().add(link);
+        }
+    }
+
+
+    private void syncSkills(JobListing job, List<Skill> requested) {
+        Set<String> requestedIds = requested.stream()
+                .filter(s -> s != null && s.getId() != null)
+                .map(Skill::getId)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        job.getSkills().removeIf(link -> {
+            Skill s = link.getSkill();
+            return s == null || s.getId() == null || !requestedIds.contains(s.getId());
+        });
+
+        Set<String> existingIds = job.getSkills().stream()
+                .map(link -> link.getSkill().getId())
+                .collect(Collectors.toCollection(HashSet::new));
+
+        for (Skill skill : requested) {
+            if (skill == null || skill.getId() == null) continue;
+            if (!existingIds.add(skill.getId())) continue;
             JobListingSkill link = new JobListingSkill();
             link.setJobListing(job);
             link.setSkill(skill);
