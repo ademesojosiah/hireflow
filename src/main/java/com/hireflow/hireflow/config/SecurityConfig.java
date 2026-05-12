@@ -62,7 +62,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/uploads/**").hasRole("APPLICANT")
 
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/jobs/**").hasRole("APPLICANT")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/me").hasRole("APPLICANT")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications").hasRole("APPLICANT")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/jobs/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/**").hasRole("APPLICANT")
 

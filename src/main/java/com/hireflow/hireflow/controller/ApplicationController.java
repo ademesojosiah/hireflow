@@ -33,7 +33,7 @@ public class ApplicationController {
                 .body(ApiResponse.success("Application submitted successfully", response));
     }
 
-    @GetMapping("/me")
+    @GetMapping("")
     public ResponseEntity<?> findMyApplications(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
