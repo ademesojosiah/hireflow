@@ -2,8 +2,11 @@ package com.hireflow.hireflow.mapper;
 
 import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
+import com.hireflow.hireflow.data.model.ApplicationAnswer;
 import com.hireflow.hireflow.data.model.StageUpdate;
 import com.hireflow.hireflow.dto.response.AiScreeningResultResponse;
+import com.hireflow.hireflow.dto.response.AiScreeningStageResponse;
+import com.hireflow.hireflow.dto.response.ApplicationAnswerResponse;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.dto.response.StageUpdateResponse;
 import org.springframework.stereotype.Component;
@@ -42,7 +45,22 @@ public class ApplicationMapper {
                 .sorted(Comparator.comparing(StageUpdate::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(this::toStageUpdateResponse)
                 .toList());
+        response.setAnswers(application.getAnswers() == null ? List.of()
+                : application.getAnswers().stream()
+                .sorted(Comparator.comparing(ApplicationAnswer::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(this::toAnswerResponse)
+                .toList());
         return response;
+    }
+
+    private ApplicationAnswerResponse toAnswerResponse(ApplicationAnswer answer) {
+        return new ApplicationAnswerResponse(
+                answer.getId(),
+                answer.getJobQuestion() == null ? null : answer.getJobQuestion().getId(),
+                answer.getQuestionSnapshot(),
+                answer.getAnswer(),
+                answer.getCreatedAt()
+        );
     }
 
     private AiScreeningResultResponse toScreeningResponse(AiScreeningResult result) {
@@ -55,6 +73,24 @@ public class ApplicationMapper {
                 result.getMatchPercentage(),
                 result.getMatchedSkills(),
                 result.getUnmatchedSkills(),
+                result.getAiNarrativeSummary(),
+                new AiScreeningStageResponse(
+                        result.getResumeAnalysisScore(),
+                        result.getResumeAnalysisExplanation(),
+                        result.getResumeAnalysisReview()
+                ),
+                new AiScreeningStageResponse(
+                        result.getProjectConsistencyScore(),
+                        result.getProjectConsistencyExplanation(),
+                        result.getProjectConsistencyReview()
+                ),
+                new AiScreeningStageResponse(
+                        result.getInconsistencyScore(),
+                        result.getInconsistencyExplanation(),
+                        result.getInconsistencyReview()
+                ),
+                result.getInconsistencySeverity(),
+                result.getRecommendedHumanReviewAction(),
                 result.getCreatedAt()
         );
     }

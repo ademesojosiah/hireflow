@@ -16,7 +16,10 @@ public class ScreeningCompletedConsumer {
 
     @KafkaListener(
             topics = "${hireflow.kafka.topics.screening-completed}",
-            groupId = "${spring.kafka.consumer.group-id}"
+            groupId = "${spring.kafka.consumer.group-id}",
+            properties = {
+                    "spring.json.value.default.type=com.hireflow.hireflow.event.events.ScreeningCompletedEvent"
+            }
     )
     public void consume(ScreeningCompletedEvent event) {
         log.info("Received screening completed event for application {}", event.getApplicationId());

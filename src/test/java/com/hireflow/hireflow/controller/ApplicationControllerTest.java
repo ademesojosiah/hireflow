@@ -1,13 +1,17 @@
 package com.hireflow.hireflow.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.JobListingSkill;
+import com.hireflow.hireflow.data.model.JobQuestion;
 import com.hireflow.hireflow.data.model.ResumeProfile;
 import com.hireflow.hireflow.data.model.ResumeProfileSkill;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
+import com.hireflow.hireflow.dto.request.ApplicationAnswerRequest;
+import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.data.repository.CompanyRepository;
@@ -20,6 +24,7 @@ import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import com.hireflow.hireflow.security.UserPrincipal;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +35,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -54,6 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ApplicationControllerTest {
 
     @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
     @Autowired private UserRepository userRepository;
     @Autowired private CompanyRepository companyRepository;
     @Autowired private JobListingRepository jobListingRepository;
@@ -64,6 +71,7 @@ class ApplicationControllerTest {
     @Autowired private PasswordEncoder passwordEncoder;
 
     @MockitoBean private AiScreeningEventProducer aiScreeningEventProducer;
+    @MockitoBean private NotificationEventProducer notificationEventProducer;
 
     private Company company;
     private Company otherCompany;
@@ -93,6 +101,7 @@ class ApplicationControllerTest {
     @AfterEach
     void cleanUp() {
         reset(aiScreeningEventProducer);
+        reset(notificationEventProducer);
         deleteAllData();
     }
 
@@ -113,6 +122,8 @@ class ApplicationControllerTest {
         saveResumeProfile(applicant, List.of(java));
 
         mockMvc.perform(post("/api/v1/applications/jobs/" + job.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ApplyToJobRequest()))
                         .with(user(principalFor(applicant))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
@@ -138,6 +149,71 @@ class ApplicationControllerTest {
                         && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
                         && Integer.valueOf(75).equals(event.getAutoPassThreshold())
         ));
+        verify(notificationEventProducer, timeout(1000)).publishApplicationStageUpdateAsync(argThat(event ->
+                event != null
+                        && persisted.getId().equals(event.getApplicationId())
+                        && "APPLIED".equals(event.getCurrentStage())
+        ));
+        verify(notificationEventProducer, timeout(1000)).publishApplicationStageUpdateAsync(argThat(event ->
+                event != null
+                        && persisted.getId().equals(event.getApplicationId())
+                        && "SCREENING".equals(event.getCurrentStage())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should persist applicant answers when applying to a job with technical questions")
+    void applyToJob_persistsAnswers() throws Exception {
+        JobListing job = saveJobWithQuestion(company, JobStatus.OPEN, List.of(java),
+                "Describe a Kafka project.", "Mentions Kafka.");
+        saveResumeProfile(applicant, List.of(java));
+        String questionId = job.getQuestions().getFirst().getId();
+
+        ApplyToJobRequest payload = new ApplyToJobRequest();
+        payload.setAnswers(List.of(new ApplicationAnswerRequest(
+                questionId,
+                "Owned a Kafka pipeline that processed 1M events per day with producers and consumers."
+        )));
+
+        mockMvc.perform(post("/api/v1/applications/jobs/" + job.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload))
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.answers.length()").value(1))
+                .andExpect(jsonPath("$.data.answers[0].questionId").value(questionId))
+                .andExpect(jsonPath("$.data.answers[0].question").value("Describe a Kafka project."))
+                .andExpect(jsonPath("$.data.answers[0].answer")
+                        .value("Owned a Kafka pipeline that processed 1M events per day with producers and consumers."));
+
+        assertThat(applicationRepository.findAll()).hasSize(1);
+
+        verify(aiScreeningEventProducer, timeout(1000)).publishApplicationSubmittedAsync(argThat(event ->
+                event != null
+                        && event.getAnswers() != null
+                        && event.getAnswers().size() == 1
+                        && questionId.equals(event.getAnswers().getFirst().getQuestionId())
+                        && "Mentions Kafka.".equals(event.getAnswers().getFirst().getExpectedAnswerGuide())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should return 400 when an applicant skips a required technical question")
+    void applyToJob_missingAnswer() throws Exception {
+        JobListing job = saveJobWithQuestion(company, JobStatus.OPEN, List.of(java),
+                "Describe a Kafka project.", "Mentions Kafka.");
+        saveResumeProfile(applicant, List.of(java));
+
+        mockMvc.perform(post("/api/v1/applications/jobs/" + job.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ApplyToJobRequest()))
+                        .with(user(principalFor(applicant))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("Answer required for question")));
+
+        assertThat(applicationRepository.findAll()).isEmpty();
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -380,6 +456,22 @@ class ApplicationControllerTest {
         for (Skill skill : skills) {
             job.getSkills().add(new JobListingSkill(job, skill));
         }
+        return jobListingRepository.save(job);
+    }
+
+    private JobListing saveJobWithQuestion(
+            Company company,
+            JobStatus status,
+            List<Skill> skills,
+            String questionText,
+            String answerGuide
+    ) {
+        JobListing job = saveJob(company, status, skills);
+        JobQuestion question = new JobQuestion();
+        question.setJobListing(job);
+        question.setQuestion(questionText);
+        question.setAnswer(answerGuide);
+        job.getQuestions().add(question);
         return jobListingRepository.save(job);
     }
 

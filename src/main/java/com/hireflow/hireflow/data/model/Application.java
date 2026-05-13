@@ -72,6 +72,14 @@ public class Application extends BaseEntity {
     )
     private List<StageUpdate> stageUpdates = new ArrayList<>();
 
+    @OneToMany(
+            mappedBy = "application",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
+    )
+    private List<ApplicationAnswer> answers = new ArrayList<>();
+
     @JsonIgnore
     @OneToOne(
             mappedBy = "application",
@@ -89,5 +97,14 @@ public class Application extends BaseEntity {
         update.setReason(reason);
         update.setActor(actor);
         stageUpdates.add(update);
+    }
+
+    public void addAnswer(JobQuestion question, String answerText) {
+        ApplicationAnswer answer = new ApplicationAnswer();
+        answer.setApplication(this);
+        answer.setJobQuestion(question);
+        answer.setQuestionSnapshot(question.getQuestion());
+        answer.setAnswer(answerText);
+        answers.add(answer);
     }
 }

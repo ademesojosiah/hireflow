@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Slf4j
@@ -39,6 +40,17 @@ public class KafkaNotificationEventProducer implements NotificationEventProducer
                 firstName,
                 companyName
         );
+        publish(event);
+    }
+
+    @Async("notificationAsyncExecutor")
+    @Override
+    public void publishApplicationStageUpdateAsync(EmailNotificationEvent event) {
+        publishApplicationStageUpdate(event);
+    }
+
+    @Override
+    public void publishApplicationStageUpdate(EmailNotificationEvent event) {
         publish(event);
     }
 

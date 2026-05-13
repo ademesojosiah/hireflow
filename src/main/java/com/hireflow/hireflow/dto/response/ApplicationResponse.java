@@ -26,6 +26,7 @@ public class ApplicationResponse {
     private String companyName;
     private AiScreeningResultResponse screeningResult;
     private List<StageUpdateResponse> stageUpdates;
+    private List<ApplicationAnswerResponse> answers;
     private Instant createdAt;
     private Instant updatedAt;
 }

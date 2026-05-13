@@ -18,5 +18,11 @@ public class AiScreeningResultResponse {
     private Integer matchPercentage;
     private List<String> matchedSkills;
     private List<String> unmatchedSkills;
+    private String aiNarrativeSummary;
+    private AiScreeningStageResponse resumeAnalysis;
+    private AiScreeningStageResponse projectConsistency;
+    private AiScreeningStageResponse inconsistencyReview;
+    private String inconsistencySeverity;
+    private String recommendedHumanReviewAction;
     private Instant createdAt;
 }

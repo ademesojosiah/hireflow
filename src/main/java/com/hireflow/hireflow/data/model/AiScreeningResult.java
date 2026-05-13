@@ -40,7 +40,7 @@ public class AiScreeningResult extends BaseEntity {
 
     @Min(0)
     @Max(100)
-    @Column(nullable = false)
+    @Column
     private Integer matchPercentage;
 
     @ElementCollection
@@ -55,4 +55,44 @@ public class AiScreeningResult extends BaseEntity {
 
     @Column(columnDefinition = "TEXT")
     private String aiNarrativeSummary;
+
+    @Min(0)
+    @Max(100)
+    @Column
+    private Integer resumeAnalysisScore;
+
+    @Column(columnDefinition = "TEXT")
+    private String resumeAnalysisExplanation;
+
+    @Column(columnDefinition = "TEXT")
+    private String resumeAnalysisReview;
+
+    @Min(0)
+    @Max(100)
+    @Column
+    private Integer projectConsistencyScore;
+
+    @Column(columnDefinition = "TEXT")
+    private String projectConsistencyExplanation;
+
+    @Column(columnDefinition = "TEXT")
+    private String projectConsistencyReview;
+
+    @Min(0)
+    @Max(100)
+    @Column
+    private Integer inconsistencyScore;
+
+    @Column
+    private String inconsistencySeverity;
+
+    @Column(columnDefinition = "TEXT")
+    private String inconsistencyExplanation;
+
+    @Column(columnDefinition = "TEXT")
+    private String inconsistencyReview;
+
+    @Column(columnDefinition = "TEXT")
+    private String recommendedHumanReviewAction;
+
 }

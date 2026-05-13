@@ -1,9 +1,11 @@
 package com.hireflow.hireflow.controller;
 
+import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.dto.response.ApiResponse;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.security.UserPrincipal;
 import com.hireflow.hireflow.service.ApplicationService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -12,6 +14,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,9 +29,11 @@ public class ApplicationController {
     @PostMapping("/jobs/{jobId}")
     public ResponseEntity<?> applyToJob(
             @PathVariable String jobId,
+            @RequestBody(required = false) @Valid ApplyToJobRequest request,
             @AuthenticationPrincipal UserPrincipal userPrincipal
     ) {
-        ApplicationResponse response = applicationService.applyToJob(jobId, userPrincipal.getUser());
+        ApplyToJobRequest payload = request == null ? new ApplyToJobRequest() : request;
+        ApplicationResponse response = applicationService.applyToJob(jobId, payload, userPrincipal.getUser());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Application submitted successfully", response));
     }

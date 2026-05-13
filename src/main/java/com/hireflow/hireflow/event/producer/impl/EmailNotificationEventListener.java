@@ -28,6 +28,8 @@ public class EmailNotificationEventListener {
                             event.getFirstName(),
                             event.getCompanyName()
                     );
+            case EmailNotificationEvent.APPLICATION_STAGE_UPDATED ->
+                    notificationEventProducer.publishApplicationStageUpdate(event);
             default -> log.warn("Unknown email notification event type: {}", event.getType());
         }
     }

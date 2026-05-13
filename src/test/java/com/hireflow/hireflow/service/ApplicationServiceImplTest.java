@@ -5,23 +5,31 @@ import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.JobListingSkill;
+import com.hireflow.hireflow.data.model.JobQuestion;
 import com.hireflow.hireflow.data.model.ResumeProfile;
 import com.hireflow.hireflow.data.model.ResumeProfileSkill;
 import com.hireflow.hireflow.data.model.Skill;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
+import com.hireflow.hireflow.dto.request.ApplicationAnswerRequest;
+import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
+import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
+import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
 import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
 import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.ApplicationMapper;
+import com.hireflow.hireflow.service.impl.ApplicationScreeningPersistence;
 import com.hireflow.hireflow.service.impl.ApplicationSubmissionPersistence;
 import com.hireflow.hireflow.service.impl.ApplicationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +65,7 @@ class ApplicationServiceImplTest {
     @Mock private JobListingService jobListingService;
     @Mock private ResumeProfileService resumeProfileService;
     @Mock private AiScreeningEventProducer aiScreeningEventProducer;
+    @Mock private NotificationEventProducer notificationEventProducer;
     @Mock private ApplicationMapper applicationMapper;
     private ApplicationServiceImpl applicationService;
 
@@ -94,14 +103,19 @@ class ApplicationServiceImplTest {
                 resumeProfileService,
                 applicationMapper
         );
+        ApplicationScreeningPersistence applicationScreeningPersistence = new ApplicationScreeningPersistence(
+                applicationRepository,
+                aiScreeningResultRepository
+        );
         applicationService = new ApplicationServiceImpl(
                 applicationRepository,
-                aiScreeningResultRepository,
                 userService,
                 jobListingService,
                 aiScreeningEventProducer,
+                notificationEventProducer,
                 applicationMapper,
-                applicationSubmissionPersistence
+                applicationSubmissionPersistence,
+                applicationScreeningPersistence
         );
     }
 
@@ -124,7 +138,7 @@ class ApplicationServiceImplTest {
         });
         when(applicationMapper.toResponse(any(Application.class))).thenReturn(expected);
 
-        ApplicationResponse response = applicationService.applyToJob(job.getId(), applicant);
+        ApplicationResponse response = applicationService.applyToJob(job.getId(), answerRequest(), applicant);
 
         assertThat(response).isSameAs(expected);
 
@@ -154,6 +168,101 @@ class ApplicationServiceImplTest {
                         && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
                         && Integer.valueOf(75).equals(event.getAutoPassThreshold())
         ));
+        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(event ->
+                event != null
+                        && "APPLICATION_STAGE_UPDATED".equals(event.getType())
+                        && "application-1".equals(event.getApplicationId())
+                        && "APPLIED".equals(event.getCurrentStage())
+        ));
+        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(event ->
+                event != null
+                        && "APPLICATION_STAGE_UPDATED".equals(event.getType())
+                        && "application-1".equals(event.getApplicationId())
+                        && "SCREENING".equals(event.getCurrentStage())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should persist applicant answers and forward them in the AI screening event")
+    void applyToJob_persistsAnswers() {
+        JobQuestion technicalQuestion = question("question-1", "Describe a Kafka project.", "Mentions Kafka consumer/producer.");
+        job.getQuestions().add(technicalQuestion);
+
+        ApplicationResponse expected = new ApplicationResponse();
+        expected.setId("application-1");
+
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
+        when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
+        when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(false);
+        AtomicReference<Application> saved = new AtomicReference<>();
+        when(applicationRepository.save(any(Application.class))).thenAnswer(invocation -> {
+            Application app = invocation.getArgument(0);
+            app.setId("application-1");
+            saved.set(app);
+            return app;
+        });
+        when(applicationMapper.toResponse(any(Application.class))).thenReturn(expected);
+
+        ApplyToJobRequest request = answerRequest(new ApplicationAnswerRequest(
+                "question-1",
+                "Built a Kafka pipeline with consumers and producers in production."
+        ));
+
+        applicationService.applyToJob(job.getId(), request, applicant);
+
+        assertThat(saved.get().getAnswers()).hasSize(1);
+        assertThat(saved.get().getAnswers().getFirst().getJobQuestion()).isSameAs(technicalQuestion);
+        assertThat(saved.get().getAnswers().getFirst().getQuestionSnapshot()).isEqualTo("Describe a Kafka project.");
+        assertThat(saved.get().getAnswers().getFirst().getAnswer())
+                .isEqualTo("Built a Kafka pipeline with consumers and producers in production.");
+
+        verify(aiScreeningEventProducer).publishApplicationSubmittedAsync(argThat(event ->
+                event != null
+                        && event.getAnswers() != null
+                        && event.getAnswers().size() == 1
+                        && "question-1".equals(event.getAnswers().getFirst().getQuestionId())
+                        && "Describe a Kafka project.".equals(event.getAnswers().getFirst().getQuestion())
+                        && "Mentions Kafka consumer/producer.".equals(event.getAnswers().getFirst().getExpectedAnswerGuide())
+                        && "Built a Kafka pipeline with consumers and producers in production."
+                                .equals(event.getAnswers().getFirst().getApplicantAnswer())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should reject application when a required job question has no answer")
+    void applyToJob_missingAnswer() {
+        job.getQuestions().add(question("question-1", "Describe a Kafka project.", "Mentions Kafka."));
+
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
+        when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
+        when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(false);
+
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Answer required for question");
+
+        verify(applicationRepository, never()).save(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
+    }
+
+    @Test
+    @DisplayName("Should reject application when answers reference an unknown question id")
+    void applyToJob_unknownQuestionId() {
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
+        when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
+        when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(false);
+
+        ApplyToJobRequest request = answerRequest(new ApplicationAnswerRequest("ghost-question", "answer"));
+
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), request, applicant))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Unknown question id");
+
+        verify(applicationRepository, never()).save(any());
+        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
     @Test
@@ -162,7 +271,7 @@ class ApplicationServiceImplTest {
         manager.setRole(Role.HMANAGER);
         when(userService.findUserById(manager.getId())).thenReturn(manager);
 
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), manager))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), manager))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Only applicants");
 
@@ -173,7 +282,7 @@ class ApplicationServiceImplTest {
     @Test
     @DisplayName("Should reject application submission without authentication")
     void applyToJob_nullUser() {
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), null))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), null))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Authentication required");
 
@@ -188,7 +297,7 @@ class ApplicationServiceImplTest {
         when(userService.findUserById(applicant.getId())).thenReturn(applicant);
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
 
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), applicant))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
                 .isInstanceOf(CustomException.class)
                 .hasMessageContaining("not accepting applications");
 
@@ -204,7 +313,7 @@ class ApplicationServiceImplTest {
         when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
         when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(true);
 
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), applicant))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
                 .isInstanceOf(DuplicateResourceException.class)
                 .hasMessageContaining("already applied");
 
@@ -220,7 +329,7 @@ class ApplicationServiceImplTest {
         when(resumeProfileService.findProfileByUserId(applicant.getId()))
                 .thenThrow(new ResourceNotFoundException("Resume profile not found"));
 
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), applicant))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Resume profile");
 
@@ -234,7 +343,7 @@ class ApplicationServiceImplTest {
         when(userService.findUserById(applicant.getId())).thenReturn(applicant);
         when(jobListingService.findJobListingById(job.getId())).thenThrow(new IllegalStateException("broker down"));
 
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), applicant))
+        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
                 .isInstanceOf(CustomException.class)
                 .hasMessageContaining("Application submission failed");
     }
@@ -386,6 +495,11 @@ class ApplicationServiceImplTest {
         assertThat(application.getStageUpdates()).hasSize(1);
         assertThat(application.getStageUpdates().getFirst().getCurrentStage()).isEqualTo(ApplicationStage.REJECTED);
         verify(applicationRepository).save(application);
+        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
+                notification != null
+                        && "REJECTED".equals(notification.getCurrentStage())
+                        && "SCREENING".equals(notification.getPreviousStage())
+        ));
     }
 
     @Test
@@ -475,6 +589,85 @@ class ApplicationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should apply resume analysis without moving the application stage")
+    void processResumeAnalysisCompleted_partialMerge() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
+
+        ResumeAnalysisCompletedEvent event = new ResumeAnalysisCompletedEvent(
+                application.getId(), 72, "Strong Java alignment", "Resume mostly matches required skills."
+        );
+
+        applicationService.processResumeAnalysisCompleted(event);
+
+        AiScreeningResult result = application.getScreeningResult();
+        assertThat(result.getResumeAnalysisScore()).isEqualTo(72);
+        assertThat(result.getResumeAnalysisExplanation()).isEqualTo("Strong Java alignment");
+        assertThat(result.getResumeAnalysisReview()).isEqualTo("Resume mostly matches required skills.");
+        assertThat(result.getMatchPercentage()).isNull();
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        assertThat(application.getStageUpdates()).isEmpty();
+        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
+        verify(applicationRepository).save(application);
+    }
+
+    @Test
+    @DisplayName("Should apply project consistency without overwriting other stages")
+    void processProjectConsistencyCompleted_partialMerge() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        AiScreeningResult existing = new AiScreeningResult();
+        existing.setApplication(application);
+        existing.setResumeAnalysisScore(80);
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.of(existing));
+
+        ProjectConsistencyCompletedEvent event = new ProjectConsistencyCompletedEvent(
+                application.getId(), 65, "Projects mention Java and Kafka", "Projects need human review."
+        );
+
+        applicationService.processProjectConsistencyCompleted(event);
+
+        assertThat(existing.getProjectConsistencyScore()).isEqualTo(65);
+        assertThat(existing.getResumeAnalysisScore()).isEqualTo(80);
+        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
+    }
+
+    @Test
+    @DisplayName("Should apply inconsistency review including severity and recommended action")
+    void processInconsistencyReviewCompleted_partialMerge() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
+
+        InconsistencyReviewCompletedEvent event = new InconsistencyReviewCompletedEvent(
+                application.getId(), 55, "MEDIUM",
+                "Some claims are weakly supported.",
+                "Review weak claims.",
+                "Check the weaker claims during interview."
+        );
+
+        applicationService.processInconsistencyReviewCompleted(event);
+
+        AiScreeningResult result = application.getScreeningResult();
+        assertThat(result.getInconsistencyScore()).isEqualTo(55);
+        assertThat(result.getInconsistencySeverity()).isEqualTo("MEDIUM");
+        assertThat(result.getRecommendedHumanReviewAction()).isEqualTo("Check the weaker claims during interview.");
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
+    }
+
+    @Test
+    @DisplayName("Should return not found when a per-stage event references an unknown application")
+    void processResumeAnalysisCompleted_applicationNotFound() {
+        ResumeAnalysisCompletedEvent event = new ResumeAnalysisCompletedEvent("missing", 50, "exp", "rev");
+        when(applicationRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> applicationService.processResumeAnalysisCompleted(event))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
     @DisplayName("Should wrap unexpected screening persistence failures")
     void processScreeningCompleted_unexpectedFailure() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
@@ -543,5 +736,20 @@ class ApplicationServiceImplTest {
         skill.setId("skill-" + name.toLowerCase());
         skill.setName(name);
         return skill;
+    }
+
+    private ApplyToJobRequest answerRequest(ApplicationAnswerRequest... answers) {
+        ApplyToJobRequest request = new ApplyToJobRequest();
+        request.setAnswers(new java.util.ArrayList<>(java.util.Arrays.asList(answers)));
+        return request;
+    }
+
+    private JobQuestion question(String id, String text, String guide) {
+        JobQuestion q = new JobQuestion();
+        q.setId(id);
+        q.setQuestion(text);
+        q.setAnswer(guide);
+        q.setJobListing(job);
+        return q;
     }
 }

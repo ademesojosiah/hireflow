@@ -1,23 +1,27 @@
 package com.hireflow.hireflow.service.impl;
 
-import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
+import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
-import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.event.events.EmailNotificationEvent;
+import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
+import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
+import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
+import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
+import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
+import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
-import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
-import com.hireflow.hireflow.event.producer.AiScreeningEventProducer;
 import com.hireflow.hireflow.mapper.ApplicationMapper;
 import com.hireflow.hireflow.service.ApplicationService;
 import com.hireflow.hireflow.service.JobListingService;
 import com.hireflow.hireflow.service.UserService;
+import com.hireflow.hireflow.service.result.ApplicationScreeningResult;
 import com.hireflow.hireflow.service.result.ApplicationSubmissionResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,10 +29,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -36,18 +36,20 @@ import java.util.List;
 public class ApplicationServiceImpl implements ApplicationService {
 
     private final ApplicationRepository applicationRepository;
-    private final AiScreeningResultRepository aiScreeningResultRepository;
     private final UserService userService;
     private final JobListingService jobListingService;
     private final AiScreeningEventProducer aiScreeningEventProducer;
+    private final NotificationEventProducer notificationEventProducer;
     private final ApplicationMapper applicationMapper;
     private final ApplicationSubmissionPersistence applicationSubmissionPersistence;
+    private final ApplicationScreeningPersistence applicationScreeningPersistence;
 
     @Override
-    public ApplicationResponse applyToJob(String jobId, User user) {
+    public ApplicationResponse applyToJob(String jobId, ApplyToJobRequest request, User user) {
         try {
-            ApplicationSubmissionResult result = applicationSubmissionPersistence.submit(jobId, user);
+            ApplicationSubmissionResult result = applicationSubmissionPersistence.submit(jobId, request, user);
             aiScreeningEventProducer.publishApplicationSubmittedAsync(result.getEvent());
+            publishSubmissionNotifications(result.getResponse());
             return result.getResponse();
         } catch (AccessDeniedException | DuplicateResourceException | ResourceNotFoundException | CustomException ex) {
             log.error(ex.getMessage());
@@ -86,30 +88,29 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    @Transactional
+    public void processResumeAnalysisCompleted(ResumeAnalysisCompletedEvent event) {
+        runScreeningStage("resume analysis", event.getApplicationId(),
+                () -> applicationScreeningPersistence.applyResumeAnalysis(event));
+    }
+
+    @Override
+    public void processProjectConsistencyCompleted(ProjectConsistencyCompletedEvent event) {
+        runScreeningStage("project consistency", event.getApplicationId(),
+                () -> applicationScreeningPersistence.applyProjectConsistency(event));
+    }
+
+    @Override
+    public void processInconsistencyReviewCompleted(InconsistencyReviewCompletedEvent event) {
+        runScreeningStage("inconsistency review", event.getApplicationId(),
+                () -> applicationScreeningPersistence.applyInconsistencyReview(event));
+    }
+
+    @Override
     public void processScreeningCompleted(ScreeningCompletedEvent event) {
         try {
-            Application application = applicationRepository.findById(event.getApplicationId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
-
-            AiScreeningResult result = aiScreeningResultRepository.findByApplication_Id(application.getId())
-                    .orElseGet(AiScreeningResult::new);
-            result.setApplication(application);
-            result.setMatchPercentage(event.getMatchPercentage());
-            result.setMatchedSkills(safeList(event.getMatchedSkills()));
-            result.setUnmatchedSkills(safeList(event.getUnmatchedSkills()));
-            result.setAiNarrativeSummary(event.getAiNarrativeSummary());
-            application.setScreeningResult(result);
-
-            ApplicationStage nextStage = resolveScreeningStage(application, event.getMatchPercentage());
-            if (nextStage != application.getStage()) {
-                ApplicationStage previous = application.getStage();
-                application.setStage(nextStage);
-                application.addStageUpdate(previous, nextStage, "AI screening completed", "ai-screening");
-            }
-
-            applicationRepository.save(application);
-            log.info("Processed AI screening result for application {}", application.getId());
+            ApplicationScreeningResult result = applicationScreeningPersistence.finalizeScreening(event);
+            notificationEventProducer.publishApplicationStageUpdateAsync(result.getNotificationEvent());
+            log.info("Processed AI screening result for application {}", event.getApplicationId());
         } catch (ResourceNotFoundException | CustomException ex) {
             log.error(ex.getMessage());
             throw ex;
@@ -117,6 +118,51 @@ public class ApplicationServiceImpl implements ApplicationService {
             log.error("Failed to process AI screening result: {}", ex.getMessage());
             throw new CustomException("Failed to process AI screening result");
         }
+    }
+
+    private void runScreeningStage(String stageName, String applicationId, Runnable work) {
+        try {
+            work.run();
+            log.info("Applied {} for application {}", stageName, applicationId);
+        } catch (ResourceNotFoundException | CustomException ex) {
+            log.error(ex.getMessage());
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Failed to apply {} for application {}: {}", stageName, applicationId, ex.getMessage());
+            throw new CustomException("Failed to apply " + stageName + " result");
+        }
+    }
+
+    private void publishSubmissionNotifications(ApplicationResponse response) {
+        notificationEventProducer.publishApplicationStageUpdateAsync(EmailNotificationEvent.applicationStageUpdated(
+                response.getApplicantEmail(),
+                response.getId(),
+                response.getApplicantId(),
+                response.getJobListingId(),
+                response.getJobTitle(),
+                response.getCompanyId(),
+                response.getCompanyName(),
+                null,
+                "APPLIED",
+                "Application submitted",
+                response.getApplicantEmail(),
+                "Your application has been submitted."
+        ));
+
+        notificationEventProducer.publishApplicationStageUpdateAsync(EmailNotificationEvent.applicationStageUpdated(
+                response.getApplicantEmail(),
+                response.getId(),
+                response.getApplicantId(),
+                response.getJobListingId(),
+                response.getJobTitle(),
+                response.getCompanyId(),
+                response.getCompanyName(),
+                "APPLIED",
+                "SCREENING",
+                "Queued for AI screening",
+                "system",
+                "Your application is now in AI screening."
+        ));
     }
 
     private User requireApplicant(User user) {
@@ -146,20 +192,4 @@ public class ApplicationServiceImpl implements ApplicationService {
         return refreshed;
     }
 
-    private ApplicationStage resolveScreeningStage(Application application, Integer matchPercentage) {
-        int score = matchPercentage == null ? 0 : matchPercentage;
-        JobListing job = application.getJobListing();
-
-        if (score < job.getAutoRejectThreshold()) {
-            return ApplicationStage.REJECTED;
-        }
-        if (score >= job.getAutoPassThreshold()) {
-            return ApplicationStage.INTERVIEW_SCHEDULED;
-        }
-        return ApplicationStage.SCREENING;
-    }
-
-    private List<String> safeList(List<String> values) {
-        return values == null ? new ArrayList<>() : new ArrayList<>(values);
-    }
 }

@@ -49,6 +49,7 @@ HireFlow is a hiring management platform designed to help companies streamline t
 - **Role-based access control** — `APPLICANT`, `HMANAGER`, `ADMIN`.
 - **Candidate applications** — applicants can apply to open jobs, see their applications, and hiring teams can list applications by job.
 - **Kafka-backed AI screening** — application submission publishes an AI screening event; completed screening results are consumed back into HireFlow.
+- **Transparent application updates** — application actions/stages are published to the Notification service, which can stream updates to clients over SSE.
 - **Role-specific job questions** — admins and hiring managers can add simple technical questions and internal answer guides while creating or updating a job.
 - **Direct-to-Cloudinary signed uploads** — the backend generates a short-lived Cloudinary signature; the frontend uploads the file directly to Cloudinary and sends back only the resulting URL. The server never handles the file bytes.
 - **Centralised exception handling** — `@RestControllerAdvice` returns a consistent `ApiResponse` envelope for every error class.
@@ -102,6 +103,7 @@ Current Kafka events implemented in this repository:
 - `EmailNotificationEvent` to the notification email topic
 - `ApplicationSubmittedEvent` to the AI screening topic
 - `ScreeningCompletedEvent` consumed back from the AI screening service
+- `APPLICATION_STAGE_UPDATED` notification events for applicant-facing timelines/SSE broadcasts
 
 This keeps the database boundary clean. The AI and Notification services are stateless processing workers — if they fail, Kafka retries the message. If their failure needs to be recorded (e.g. `ScreeningFailed`), they publish an event and the Application Service writes the result.
 
@@ -245,6 +247,17 @@ erDiagram
         String application_id FK "unique, required, indexed"
         Integer matchPercentage "0-100"
         String aiNarrativeSummary "TEXT, internal only"
+        Integer resumeAnalysisScore "0-100"
+        String resumeAnalysisExplanation "TEXT"
+        String resumeAnalysisReview "TEXT"
+        Integer projectConsistencyScore "0-100"
+        String projectConsistencyExplanation "TEXT"
+        String projectConsistencyReview "TEXT"
+        Integer inconsistencyScore "0-100 risk"
+        String inconsistencySeverity "LOW|MEDIUM|HIGH"
+        String inconsistencyExplanation "TEXT"
+        String inconsistencyReview "TEXT"
+        String recommendedHumanReviewAction "TEXT"
         Instant createdAt
         Instant updatedAt
     }
@@ -514,11 +527,24 @@ Relationships:
 | `application_id` | UUID | FK -> `applications.id`, UNIQUE, NOT NULL, indexed | one active result per application |
 | `matchPercentage` | INT | NOT NULL, 0-100 | validates AI score |
 | `aiNarrativeSummary` | TEXT | nullable | internal-only screening explanation |
+| `resumeAnalysisScore` | INT | nullable, 0-100 | resume/job analysis score |
+| `resumeAnalysisExplanation` | TEXT | nullable | resume/job analysis explanation |
+| `resumeAnalysisReview` | TEXT | nullable | HR-facing review note |
+| `projectConsistencyScore` | INT | nullable, 0-100 | project evidence alignment score |
+| `projectConsistencyExplanation` | TEXT | nullable | project consistency explanation |
+| `projectConsistencyReview` | TEXT | nullable | HR-facing review note |
+| `inconsistencyScore` | INT | nullable, 0-100 | risk score; higher means more inconsistency risk |
+| `inconsistencySeverity` | VARCHAR | nullable | `LOW`, `MEDIUM`, `HIGH` |
+| `inconsistencyExplanation` | TEXT | nullable | contradiction/evidence explanation |
+| `inconsistencyReview` | TEXT | nullable | HR-facing review note |
+| `recommendedHumanReviewAction` | TEXT | nullable | next action for reviewers |
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Element collections:
 - `ai_screening_matched_skills(result_id, skill)`
 - `ai_screening_unmatched_skills(result_id, skill)`
+
+Rule: only `matchPercentage` controls automatic screening thresholds. Project consistency and inconsistency outputs are review inputs and must not silently reject applicants.
 
 ---
 

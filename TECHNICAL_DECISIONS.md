@@ -174,6 +174,11 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
   - unmatched skills
   - match percentage
   - short explanation
+- The AI screening result now separates stage outputs:
+  - resume/job analysis score, explanation, and HR review note
+  - project consistency score, explanation, and HR review note
+  - inconsistency risk score, severity, explanation, review note, and recommended human-review action
+- The combined `matchPercentage` remains the only score used for automatic threshold movement.
 
 - Add stronger parsing for projects, certifications, tools, seniority, and role-specific experience.
 - Compare resume claims directly against job requirements.
@@ -185,6 +190,7 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
 - Keep raw resume metadata separate from normalized profile fields.
 - Store AI output as explainable structured data.
 - Add validation around AI-generated fields before using them in ranking.
+- Keep staged scores separate so recommendation logic can combine them later without losing the original evidence.
 
 ---
 
@@ -205,13 +211,14 @@ Applicants may list projects that do not align with their claimed skills, senior
   - project descriptions that do not mention the claimed stack
   - repeated vague project wording
   - projects unrelated to the target role
-- Ask applicants follow-up technical questions about listed projects during assessment.
+- Current basic implementation uses available resume summary/profile evidence as a placeholder until structured project extraction exists.
 
 ### Technical Direction
 
 - Add a project consistency scoring component to the recommendation service.
 - Store evidence links between skills and project descriptions.
 - Use consistency scores as one input into HR recommendations, not as a standalone rejection rule.
+- Do not auto-reject from project consistency alone; keep it as an explainable review input.
 
 ---
 
@@ -240,7 +247,7 @@ Only the Application Service owns a database. The AI Screening Service and Notif
 
 ### Problem
 
-AI can help detect inconsistencies across resumes, assessments, interviews, and GitHub data, but inconsistency detection must be explainable and fair.
+AI can help detect inconsistencies across resumes, assessments, interviews, but inconsistency detection must be explainable and fair.
 
 ### Current Plan
 
@@ -256,30 +263,7 @@ AI can help detect inconsistencies across resumes, assessments, interviews, and 
 - Flag contradictions such as:
   - claiming a framework but failing basic questions about it
   - listing a project stack that does not appear in the project explanation
-  - GitHub repositories that do not support claimed public project work
 - Show inconsistency as a review flag, not an automatic rejection.
-
-### Technical Direction
-
-- Build an inconsistency scoring service that emits:
-  - score
-  - severity
-  - evidence
-  - explanation
-  - recommended human review action
-- Keep scoring thresholds configurable.
-- Log score versions so future model changes do not rewrite historical hiring decisions.
-
----
-
-## 11. Candidate Transparency and Process Consistency
-
-### Problem
-
-Candidates experience silent application periods, opaque AI screening, inconsistent interviews, and unclear offer timelines.
-
-### Current Plan
-
 - Event-driven stage updates notify candidates when their status changes.
 - `StageUpdate` provides an append-only audit history.
 - AI screening should expose matched skills, unmatched skills, match percentage, and explanation.
@@ -292,16 +276,25 @@ Candidates experience silent application periods, opaque AI screening, inconsist
 
 ### Technical Direction
 
+- Build an inconsistency scoring service that emits:
+  - score
+  - severity
+  - evidence
+  - explanation
+  - recommended human review action
+- Keep scoring thresholds configurable.
 - Keep candidate-visible explanations separate from internal HR risk analysis.
 - Preserve every stage transition for auditability.
 - Require structured evidence before major hiring stage changes.
+- Current basic implementation stores inconsistency as a review flag on `AiScreeningResult`; it does not directly reject applicants.
+- Application stage/action changes are published to the Notification service as Kafka notification events.
+- The Notification service is responsible for broadcasting applicant-facing updates over Server-Sent Events.
 
 ---
 
-## 12. Decision Principles
+## 11. Decision Principles
 
 - AI supports hiring decisions; it does not silently make final decisions.
 - Every score that affects ranking must be explainable.
 - Every automated flag must include evidence.
-- Optional external signals, such as GitHub, should only improve confidence and should not unfairly exclude candidates.
 - Historical decisions must remain auditable even as AI prompts, scoring logic, and models evolve.
