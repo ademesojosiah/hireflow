@@ -389,6 +389,42 @@ class ApplicationControllerTest {
     }
 
     @Test
+    @DisplayName("Should let an owning company manager fetch full application details by id")
+    void findApplicationById_managerGetsFullDetails() throws Exception {
+        JobListing job = saveJobWithQuestion(company, JobStatus.OPEN, List.of(java),
+                "Describe a Kafka project.", "Mentions Kafka.");
+        ResumeProfile profile = saveResumeProfile(applicant, List.of(java));
+        Application application = saveApplication(applicant, job, profile, ApplicationStage.SCREENING);
+        application.addAnswer(job.getQuestions().getFirst(), "Built Kafka consumers and producers.");
+        applicationRepository.save(application);
+        saveScreeningResult(application);
+
+        mockMvc.perform(get("/api/v1/applications/" + application.getId())
+                        .with(user(principalFor(manager))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(application.getId()))
+                .andExpect(jsonPath("$.data.applicantEmail").value("ada@example.com"))
+                .andExpect(jsonPath("$.data.resumeProfile.id").value(profile.getId()))
+                .andExpect(jsonPath("$.data.screeningResult.applicationId").value(application.getId()))
+                .andExpect(jsonPath("$.data.screeningResult.matchPercentage").value(82))
+                .andExpect(jsonPath("$.data.answers.length()").value(1))
+                .andExpect(jsonPath("$.data.answers[0].question").value("Describe a Kafka project."))
+                .andExpect(jsonPath("$.data.answers[0].answer").value("Built Kafka consumers and producers."));
+    }
+
+    @Test
+    @DisplayName("Should return 404 when manager fetches another company's application by id")
+    void findApplicationById_managerWrongCompany() throws Exception {
+        JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
+        ResumeProfile profile = saveResumeProfile(applicant, List.of(java));
+        Application application = saveApplication(applicant, job, profile, ApplicationStage.SCREENING);
+
+        mockMvc.perform(get("/api/v1/applications/" + application.getId())
+                        .with(user(principalFor(otherManager))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("Should let an owning company manager list applications for a job")
     void findByJob_success() throws Exception {
         JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));

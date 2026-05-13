@@ -404,6 +404,53 @@ class ApplicationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should let a company manager fetch full application details by id")
+    void findMyApplication_managerSuccess() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        ApplicationResponse mapped = new ApplicationResponse();
+        mapped.setId(application.getId());
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+
+        ApplicationResponse response = applicationService.findMyApplication(application.getId(), manager);
+
+        assertThat(response).isSameAs(mapped);
+    }
+
+    @Test
+    @DisplayName("Should let an admin fetch full application details by id")
+    void findMyApplication_adminSuccess() {
+        manager.setRole(Role.ADMIN);
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        ApplicationResponse mapped = new ApplicationResponse();
+        mapped.setId(application.getId());
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+
+        ApplicationResponse response = applicationService.findMyApplication(application.getId(), manager);
+
+        assertThat(response).isSameAs(mapped);
+    }
+
+    @Test
+    @DisplayName("Should return not found when a manager requests another company's application")
+    void findMyApplication_managerWrongCompany() {
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId("application-2", company.getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> applicationService.findMyApplication("application-2", manager))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Application not found");
+    }
+
+    @Test
     @DisplayName("Should let a company manager list applications for their own job")
     void findByJob_success() {
         Application application = sampleApplication(ApplicationStage.SCREENING);

@@ -16,4 +16,6 @@ public interface ApplicationRepository extends JpaRepository<Application, String
     Page<Application> findAllByJobListing_IdAndCompanyId(String jobListingId, String companyId, Pageable pageable);
 
     Optional<Application> findByIdAndApplicant_Id(String id, String applicantId);
+
+    Optional<Application> findByIdAndCompanyId(String id, String companyId);
 }

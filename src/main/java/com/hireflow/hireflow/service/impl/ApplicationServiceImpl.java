@@ -72,9 +72,16 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     @Transactional(readOnly = true)
     public ApplicationResponse findMyApplication(String applicationId, User user) {
-        User applicant = requireApplicant(user);
-        Application application = applicationRepository.findByIdAndApplicant_Id(applicationId, applicant.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+        User refreshed = requireAuthenticatedUser(user);
+        Application application = switch (refreshed.getRole()) {
+            case APPLICANT -> applicationRepository.findByIdAndApplicant_Id(applicationId, refreshed.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+            case ADMIN, HMANAGER -> {
+                User manager = requireCompanyManager(refreshed);
+                yield applicationRepository.findByIdAndCompanyId(applicationId, manager.getCompany().getId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+            }
+        };
         return applicationMapper.toResponse(application);
     }
 
@@ -170,11 +177,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private User requireApplicant(User user) {
-        if (user == null) {
-            throw new AccessDeniedException("Authentication required");
-        }
-
-        User refreshed = userService.findUserById(user.getId());
+        User refreshed = requireAuthenticatedUser(user);
         if (refreshed == null || refreshed.getRole() != Role.APPLICANT) {
             throw new AccessDeniedException("Only applicants can apply to jobs");
         }
@@ -182,16 +185,23 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private User requireCompanyManager(User user) {
-        if (user == null) {
-            throw new AccessDeniedException("Authentication required");
-        }
-
-        User refreshed = userService.findUserById(user.getId());
+        User refreshed = requireAuthenticatedUser(user);
         if (refreshed == null || (refreshed.getRole() != Role.ADMIN && refreshed.getRole() != Role.HMANAGER)) {
             throw new AccessDeniedException("Only admins and hiring managers can view job applications");
         }
         if (refreshed.getCompany() == null) {
             throw new AccessDeniedException("You must belong to a company to view job applications");
+        }
+        return refreshed;
+    }
+
+    private User requireAuthenticatedUser(User user) {
+        if (user == null) {
+            throw new AccessDeniedException("Authentication required");
+        }
+        User refreshed = userService.findUserById(user.getId());
+        if (refreshed == null) {
+            throw new AccessDeniedException("Authentication required");
         }
         return refreshed;
     }
