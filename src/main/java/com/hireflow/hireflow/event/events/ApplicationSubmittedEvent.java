@@ -5,7 +5,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Getter
@@ -28,40 +27,4 @@ public class ApplicationSubmittedEvent {
     private List<String> applicantSkills;
     private Integer autoRejectThreshold;
     private Integer autoPassThreshold;
-    private List<ApplicationSubmittedAnswer> answers = new ArrayList<>();
-
-    public ApplicationSubmittedEvent(
-            String applicationId,
-            String jobListingId,
-            String jobTitle,
-            String jobSummary,
-            String requiredQualifications,
-            String preferredQualifications,
-            String applicantId,
-            String applicantEmail,
-            String resumeSummary,
-            String resumePdfUrl,
-            List<String> jobSkills,
-            List<String> applicantSkills,
-            Integer autoRejectThreshold,
-            Integer autoPassThreshold
-    ) {
-        this(
-                applicationId,
-                jobListingId,
-                jobTitle,
-                jobSummary,
-                requiredQualifications,
-                preferredQualifications,
-                applicantId,
-                applicantEmail,
-                resumeSummary,
-                resumePdfUrl,
-                jobSkills,
-                applicantSkills,
-                autoRejectThreshold,
-                autoPassThreshold,
-                new ArrayList<>()
-        );
-    }
 }

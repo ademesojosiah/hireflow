@@ -93,6 +93,7 @@ public class ApplicationMapper {
                 result.getId(),
                 result.getApplication() == null ? null : result.getApplication().getId(),
                 result.getMatchPercentage(),
+                result.getRecommendation(),
                 result.getMatchedSkills(),
                 result.getUnmatchedSkills(),
                 result.getAiNarrativeSummary(),

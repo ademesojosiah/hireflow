@@ -3,29 +3,23 @@ package com.hireflow.hireflow.service.impl;
 import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.JobListing;
-import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
-import com.hireflow.hireflow.enums.ApplicationStage;
-import com.hireflow.hireflow.event.events.EmailNotificationEvent;
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
 import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
 import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
 import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
-import com.hireflow.hireflow.service.result.ApplicationScreeningResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.List;
 
 @Component
 @RequiredArgsConstructor
 public class ApplicationScreeningPersistence {
-
-    private static final String ACTOR = "ai-screening";
 
     private final ApplicationRepository applicationRepository;
     private final AiScreeningResultRepository aiScreeningResultRepository;
@@ -73,8 +67,13 @@ public class ApplicationScreeningPersistence {
         applicationRepository.save(application);
     }
 
+    /**
+     * Persists the final AI screening output. The application stage is NOT changed here —
+     * stage transitions are an admin/HR responsibility (single or bulk endpoints).
+     * The threshold-derived recommendation is stored so HR can filter applicants by it.
+     */
     @Transactional
-    public ApplicationScreeningResult finalizeScreening(ScreeningCompletedEvent event) {
+    public void finalizeScreening(ScreeningCompletedEvent event) {
         Application application = loadApplication(event.getApplicationId());
         AiScreeningResult result = loadOrCreate(application);
 
@@ -83,25 +82,10 @@ public class ApplicationScreeningPersistence {
         if (event.getUnmatchedSkills() != null) result.setUnmatchedSkills(new ArrayList<>(event.getUnmatchedSkills()));
         if (event.getAiNarrativeSummary() != null) result.setAiNarrativeSummary(event.getAiNarrativeSummary());
 
+        result.setRecommendation(resolveRecommendation(application.getJobListing(), result.getMatchPercentage()));
+
         application.setScreeningResult(result);
-
-        ApplicationStage previousStage = application.getStage();
-        ApplicationStage nextStage = resolveScreeningStage(application, event.getMatchPercentage());
-        String reason = resolveReason(nextStage, previousStage);
-
-        if (nextStage != previousStage) {
-            application.setStage(nextStage);
-            application.addStageUpdate(previousStage, nextStage, reason, ACTOR);
-        }
-
         applicationRepository.save(application);
-
-        return new ApplicationScreeningResult(toNotificationEvent(
-                application,
-                previousStage,
-                application.getStage(),
-                reason
-        ));
     }
 
     private Application loadApplication(String applicationId) {
@@ -115,62 +99,20 @@ public class ApplicationScreeningPersistence {
         result.setApplication(application);
         if (result.getMatchedSkills() == null) result.setMatchedSkills(new ArrayList<>());
         if (result.getUnmatchedSkills() == null) result.setUnmatchedSkills(new ArrayList<>());
+        if (result.getRecommendation() == null) result.setRecommendation(ScreeningRecommendation.PENDING);
         return result;
     }
 
-    private ApplicationStage resolveScreeningStage(Application application, Integer matchPercentage) {
-        int score = matchPercentage == null ? 0 : matchPercentage;
-        JobListing job = application.getJobListing();
-
-        if (score < job.getAutoRejectThreshold()) {
-            return ApplicationStage.REJECTED;
+    private ScreeningRecommendation resolveRecommendation(JobListing job, Integer matchPercentage) {
+        if (matchPercentage == null) {
+            return ScreeningRecommendation.PENDING;
         }
-        if (score >= job.getAutoPassThreshold()) {
-            return ApplicationStage.INTERVIEW_SCHEDULED;
+        if (matchPercentage >= job.getAutoPassThreshold()) {
+            return ScreeningRecommendation.AUTO_PASS;
         }
-        return ApplicationStage.SCREENING;
-    }
-
-    private String resolveReason(ApplicationStage nextStage, ApplicationStage previousStage) {
-        if (nextStage == previousStage) {
-            return "AI screening completed; hiring team review required";
+        if (matchPercentage < job.getAutoRejectThreshold()) {
+            return ScreeningRecommendation.AUTO_REJECT;
         }
-        return "AI screening completed";
-    }
-
-    private EmailNotificationEvent toNotificationEvent(
-            Application application,
-            ApplicationStage previousStage,
-            ApplicationStage currentStage,
-            String reason
-    ) {
-        User applicant = application.getApplicant();
-        JobListing job = application.getJobListing();
-
-        return EmailNotificationEvent.applicationStageUpdated(
-                applicant.getEmail(),
-                application.getId(),
-                applicant.getId(),
-                job.getId(),
-                job.getTitle(),
-                application.getCompanyId(),
-                job.getCompany() == null ? null : job.getCompany().getName(),
-                previousStage == null ? null : previousStage.name(),
-                currentStage.name(),
-                reason,
-                ACTOR,
-                candidateMessage(currentStage)
-        );
-    }
-
-    private String candidateMessage(ApplicationStage currentStage) {
-        return switch (currentStage) {
-            case INTERVIEW_SCHEDULED -> "Your application passed initial screening and is ready for interview scheduling.";
-            case REJECTED -> "Your application screening has been completed. The hiring team will share the next update.";
-            case SCREENING -> "Your application screening is complete and is under hiring team review.";
-            case OFFER_SENT -> "An offer update is available for your application.";
-            case HIRED -> "Your application has moved to hired.";
-            case APPLIED -> "Your application has been submitted.";
-        };
+        return ScreeningRecommendation.MANUAL_REVIEW;
     }
 }

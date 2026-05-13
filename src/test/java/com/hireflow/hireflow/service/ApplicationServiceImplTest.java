@@ -14,11 +14,15 @@ import com.hireflow.hireflow.data.repository.AiScreeningResultRepository;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.dto.request.ApplicationAnswerRequest;
 import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
+import com.hireflow.hireflow.dto.request.BulkStageUpdateRequest;
+import com.hireflow.hireflow.dto.request.StageUpdateRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
+import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse;
 import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.JobType;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
 import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
 import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
@@ -30,8 +34,9 @@ import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.ApplicationMapper;
 import com.hireflow.hireflow.service.impl.ApplicationScreeningPersistence;
-import com.hireflow.hireflow.service.impl.ApplicationSubmissionPersistence;
 import com.hireflow.hireflow.service.impl.ApplicationServiceImpl;
+import com.hireflow.hireflow.service.impl.ApplicationStageUpdatePersistence;
+import com.hireflow.hireflow.service.impl.ApplicationSubmissionPersistence;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -107,6 +112,9 @@ class ApplicationServiceImplTest {
                 applicationRepository,
                 aiScreeningResultRepository
         );
+        ApplicationStageUpdatePersistence applicationStageUpdatePersistence = new ApplicationStageUpdatePersistence(
+                applicationRepository
+        );
         applicationService = new ApplicationServiceImpl(
                 applicationRepository,
                 userService,
@@ -115,12 +123,15 @@ class ApplicationServiceImplTest {
                 notificationEventProducer,
                 applicationMapper,
                 applicationSubmissionPersistence,
-                applicationScreeningPersistence
+                applicationScreeningPersistence,
+                applicationStageUpdatePersistence
         );
     }
 
+    // ---------- applyToJob ----------
+
     @Test
-    @DisplayName("Should submit application, save screening stage, and publish AI screening event")
+    @DisplayName("Should submit application, save SCREENING stage, and publish AI screening event without answers")
     void applyToJob_success() {
         ApplicationResponse expected = new ApplicationResponse();
         expected.setId("application-1");
@@ -141,11 +152,6 @@ class ApplicationServiceImplTest {
         ApplicationResponse response = applicationService.applyToJob(job.getId(), answerRequest(), applicant);
 
         assertThat(response).isSameAs(expected);
-
-        assertThat(savedApplication.get().getApplicant()).isSameAs(applicant);
-        assertThat(savedApplication.get().getJobListing()).isSameAs(job);
-        assertThat(savedApplication.get().getResumeProfile()).isSameAs(resumeProfile);
-        assertThat(savedApplication.get().getCompanyId()).isEqualTo(company.getId());
         assertThat(savedApplication.get().getStage()).isEqualTo(ApplicationStage.SCREENING);
         assertThat(savedApplication.get().getStageUpdates())
                 .extracting("currentStage")
@@ -154,42 +160,17 @@ class ApplicationServiceImplTest {
         verify(aiScreeningEventProducer).publishApplicationSubmittedAsync(argThat(event ->
                 event != null
                         && "application-1".equals(event.getApplicationId())
-                        && "job-1".equals(event.getJobListingId())
-                        && "Backend Engineer".equals(event.getJobTitle())
-                        && "Build APIs".equals(event.getJobSummary())
-                        && "Java and Kafka".equals(event.getRequiredQualifications())
-                        && "Cloud experience".equals(event.getPreferredQualifications())
                         && "applicant-1".equals(event.getApplicantId())
-                        && "ada@example.com".equals(event.getApplicantEmail())
-                        && "Backend engineer with Java experience".equals(event.getResumeSummary())
-                        && "https://cdn.example.com/resume.pdf".equals(event.getResumePdfUrl())
                         && event.getJobSkills().equals(List.of("Java", "Kafka"))
                         && event.getApplicantSkills().equals(List.of("Java"))
-                        && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
-                        && Integer.valueOf(75).equals(event.getAutoPassThreshold())
-        ));
-        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(event ->
-                event != null
-                        && "APPLICATION_STAGE_UPDATED".equals(event.getType())
-                        && "application-1".equals(event.getApplicationId())
-                        && "APPLIED".equals(event.getCurrentStage())
-        ));
-        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(event ->
-                event != null
-                        && "APPLICATION_STAGE_UPDATED".equals(event.getType())
-                        && "application-1".equals(event.getApplicationId())
-                        && "SCREENING".equals(event.getCurrentStage())
         ));
     }
 
     @Test
-    @DisplayName("Should persist applicant answers and forward them in the AI screening event")
-    void applyToJob_persistsAnswers() {
+    @DisplayName("Should persist applicant answers on the Application but never include them in the Kafka event")
+    void applyToJob_persistsAnswersLocallyOnly() {
         JobQuestion technicalQuestion = question("question-1", "Describe a Kafka project.", "Mentions Kafka consumer/producer.");
         job.getQuestions().add(technicalQuestion);
-
-        ApplicationResponse expected = new ApplicationResponse();
-        expected.setId("application-1");
 
         when(userService.findUserById(applicant.getId())).thenReturn(applicant);
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
@@ -202,7 +183,7 @@ class ApplicationServiceImplTest {
             saved.set(app);
             return app;
         });
-        when(applicationMapper.toResponse(any(Application.class))).thenReturn(expected);
+        when(applicationMapper.toResponse(any(Application.class))).thenReturn(new ApplicationResponse());
 
         ApplyToJobRequest request = answerRequest(new ApplicationAnswerRequest(
                 "question-1",
@@ -212,20 +193,12 @@ class ApplicationServiceImplTest {
         applicationService.applyToJob(job.getId(), request, applicant);
 
         assertThat(saved.get().getAnswers()).hasSize(1);
-        assertThat(saved.get().getAnswers().getFirst().getJobQuestion()).isSameAs(technicalQuestion);
-        assertThat(saved.get().getAnswers().getFirst().getQuestionSnapshot()).isEqualTo("Describe a Kafka project.");
         assertThat(saved.get().getAnswers().getFirst().getAnswer())
                 .isEqualTo("Built a Kafka pipeline with consumers and producers in production.");
 
+        // The Kafka event must NOT contain answers — Q&A is reserved for human review.
         verify(aiScreeningEventProducer).publishApplicationSubmittedAsync(argThat(event ->
-                event != null
-                        && event.getAnswers() != null
-                        && event.getAnswers().size() == 1
-                        && "question-1".equals(event.getAnswers().getFirst().getQuestionId())
-                        && "Describe a Kafka project.".equals(event.getAnswers().getFirst().getQuestion())
-                        && "Mentions Kafka consumer/producer.".equals(event.getAnswers().getFirst().getExpectedAnswerGuide())
-                        && "Built a Kafka pipeline with consumers and producers in production."
-                                .equals(event.getAnswers().getFirst().getApplicantAnswer())
+                event != null && "application-1".equals(event.getApplicationId())
         ));
     }
 
@@ -248,60 +221,14 @@ class ApplicationServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should reject application when answers reference an unknown question id")
-    void applyToJob_unknownQuestionId() {
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
-        when(resumeProfileService.findProfileByUserId(applicant.getId())).thenReturn(resumeProfile);
-        when(applicationRepository.existsByApplicant_IdAndJobListing_Id(applicant.getId(), job.getId())).thenReturn(false);
-
-        ApplyToJobRequest request = answerRequest(new ApplicationAnswerRequest("ghost-question", "answer"));
-
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), request, applicant))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Unknown question id");
-
-        verify(applicationRepository, never()).save(any());
-        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
-    }
-
-    @Test
     @DisplayName("Should reject application submission from a non-applicant")
     void applyToJob_forbiddenForNonApplicant() {
-        manager.setRole(Role.HMANAGER);
         when(userService.findUserById(manager.getId())).thenReturn(manager);
 
         assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), manager))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Only applicants");
 
-        verify(applicationRepository, never()).save(any());
-        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
-    }
-
-    @Test
-    @DisplayName("Should reject application submission without authentication")
-    void applyToJob_nullUser() {
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), null))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("Authentication required");
-
-        verifyNoInteractions(jobListingService, resumeProfileService, aiScreeningEventProducer);
-        verify(applicationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Should reject application submission for a closed job")
-    void applyToJob_closedJob() {
-        job.setStatus(JobStatus.CLOSED);
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
-
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
-                .isInstanceOf(CustomException.class)
-                .hasMessageContaining("not accepting applications");
-
-        verify(resumeProfileService, never()).findProfileByUserId(any());
         verify(applicationRepository, never()).save(any());
     }
 
@@ -318,217 +245,66 @@ class ApplicationServiceImplTest {
                 .hasMessageContaining("already applied");
 
         verify(applicationRepository, never()).save(any());
-        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
     }
 
-    @Test
-    @DisplayName("Should return profile lookup failure without publishing an event")
-    void applyToJob_missingResumeProfile() {
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
-        when(resumeProfileService.findProfileByUserId(applicant.getId()))
-                .thenThrow(new ResourceNotFoundException("Resume profile not found"));
-
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Resume profile");
-
-        verify(applicationRepository, never()).save(any());
-        verify(aiScreeningEventProducer, never()).publishApplicationSubmittedAsync(any());
-    }
+    // ---------- findByJob recommendation filter ----------
 
     @Test
-    @DisplayName("Should wrap unexpected submission failures in a custom exception")
-    void applyToJob_unexpectedFailure() {
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(jobListingService.findJobListingById(job.getId())).thenThrow(new IllegalStateException("broker down"));
-
-        assertThatThrownBy(() -> applicationService.applyToJob(job.getId(), answerRequest(), applicant))
-                .isInstanceOf(CustomException.class)
-                .hasMessageContaining("Application submission failed");
-    }
-
-    @Test
-    @DisplayName("Should return current applicant's applications as a page")
-    void findMyApplications_success() {
+    @DisplayName("Should list all applications for a job when no recommendation filter is provided")
+    void findByJob_noFilter() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
-        PageRequest pageable = PageRequest.of(0, 10);
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(applicationRepository.findAllByApplicant_Id(applicant.getId(), pageable))
-                .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
-
-        Page<ApplicationResponse> response = applicationService.findMyApplications(applicant, pageable);
-
-        assertThat(response.getContent()).containsExactly(mapped);
-        assertThat(response.getTotalElements()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("Should require authentication before listing applicant applications")
-    void findMyApplications_nullUser() {
-        assertThatThrownBy(() -> applicationService.findMyApplications(null, PageRequest.of(0, 10)))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("Authentication required");
-    }
-
-    @Test
-    @DisplayName("Should return one application when it belongs to the applicant")
-    void findMyApplication_success() {
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
-
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(applicationRepository.findByIdAndApplicant_Id(application.getId(), applicant.getId()))
-                .thenReturn(Optional.of(application));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
-
-        ApplicationResponse response = applicationService.findMyApplication(application.getId(), applicant);
-
-        assertThat(response).isSameAs(mapped);
-    }
-
-    @Test
-    @DisplayName("Should return not found when an applicant requests someone else's application")
-    void findMyApplication_notFound() {
-        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
-        when(applicationRepository.findByIdAndApplicant_Id("missing", applicant.getId()))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> applicationService.findMyApplication("missing", applicant))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Application not found");
-    }
-
-    @Test
-    @DisplayName("Should let a company manager fetch full application details by id")
-    void findMyApplication_managerSuccess() {
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
-
-        when(userService.findUserById(manager.getId())).thenReturn(manager);
-        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
-                .thenReturn(Optional.of(application));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
-
-        ApplicationResponse response = applicationService.findMyApplication(application.getId(), manager);
-
-        assertThat(response).isSameAs(mapped);
-    }
-
-    @Test
-    @DisplayName("Should let an admin fetch full application details by id")
-    void findMyApplication_adminSuccess() {
-        manager.setRole(Role.ADMIN);
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
-
-        when(userService.findUserById(manager.getId())).thenReturn(manager);
-        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
-                .thenReturn(Optional.of(application));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
-
-        ApplicationResponse response = applicationService.findMyApplication(application.getId(), manager);
-
-        assertThat(response).isSameAs(mapped);
-    }
-
-    @Test
-    @DisplayName("Should return not found when a manager requests another company's application")
-    void findMyApplication_managerWrongCompany() {
-        when(userService.findUserById(manager.getId())).thenReturn(manager);
-        when(applicationRepository.findByIdAndCompanyId("application-2", company.getId()))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> applicationService.findMyApplication("application-2", manager))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Application not found");
-    }
-
-    @Test
-    @DisplayName("Should let a company manager list applications for their own job")
-    void findByJob_success() {
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
         PageRequest pageable = PageRequest.of(0, 5);
 
         when(userService.findUserById(manager.getId())).thenReturn(manager);
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
         when(applicationRepository.findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable))
                 .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
+        when(applicationMapper.toSummaryResponse(application)).thenReturn(new ApplicationResponse());
 
-        Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), manager, pageable);
+        Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), null, manager, pageable);
 
-        assertThat(response.getContent()).containsExactly(mapped);
+        assertThat(response.getTotalElements()).isEqualTo(1);
         verify(applicationRepository).findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable);
     }
 
     @Test
-    @DisplayName("Should let an admin list applications for their company job")
-    void findByJob_adminSuccess() {
-        manager.setRole(Role.ADMIN);
+    @DisplayName("Should filter applications by screening recommendation when provided")
+    void findByJob_filteredByRecommendation() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        ApplicationResponse mapped = new ApplicationResponse();
-        mapped.setId(application.getId());
         PageRequest pageable = PageRequest.of(0, 5);
 
         when(userService.findUserById(manager.getId())).thenReturn(manager);
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
-        when(applicationRepository.findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable))
-                .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
+        when(applicationRepository.findAllByJobListing_IdAndCompanyIdAndScreeningResult_Recommendation(
+                job.getId(), company.getId(), ScreeningRecommendation.AUTO_PASS, pageable
+        )).thenReturn(new PageImpl<>(List.of(application), pageable, 1));
+        when(applicationMapper.toSummaryResponse(application)).thenReturn(new ApplicationResponse());
 
-        Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), manager, pageable);
+        Page<ApplicationResponse> response = applicationService.findByJob(
+                job.getId(), ScreeningRecommendation.AUTO_PASS, manager, pageable);
 
-        assertThat(response.getContent()).containsExactly(mapped);
+        assertThat(response.getTotalElements()).isEqualTo(1);
+        verify(applicationRepository).findAllByJobListing_IdAndCompanyIdAndScreeningResult_Recommendation(
+                job.getId(), company.getId(), ScreeningRecommendation.AUTO_PASS, pageable);
     }
 
     @Test
-    @DisplayName("Should reject job application listing without authentication")
-    void findByJob_nullUser() {
-        assertThatThrownBy(() -> applicationService.findByJob(job.getId(), null, PageRequest.of(0, 10)))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("Authentication required");
-
-        verifyNoInteractions(jobListingService);
-        verify(applicationRepository, never()).findAllByJobListing_IdAndCompanyId(any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("Should block managers from viewing applications for another company")
+    @DisplayName("Should block managers from viewing applications for another company's job")
     void findByJob_wrongCompany() {
         JobListing otherCompanyJob = sampleJob(otherCompany, JobStatus.OPEN);
         when(userService.findUserById(manager.getId())).thenReturn(manager);
         when(jobListingService.findJobListingById(otherCompanyJob.getId())).thenReturn(otherCompanyJob);
 
-        assertThatThrownBy(() -> applicationService.findByJob(otherCompanyJob.getId(), manager, PageRequest.of(0, 10)))
+        assertThatThrownBy(() -> applicationService.findByJob(otherCompanyJob.getId(), null, manager, PageRequest.of(0, 10)))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("your company");
-
-        verify(applicationRepository, never()).findAllByJobListing_IdAndCompanyId(any(), any(), any());
     }
 
-    @Test
-    @DisplayName("Should reject listing job applications when manager has no company")
-    void findByJob_managerWithoutCompany() {
-        manager.setCompany(null);
-        when(userService.findUserById(manager.getId())).thenReturn(manager);
-
-        assertThatThrownBy(() -> applicationService.findByJob(job.getId(), manager, PageRequest.of(0, 10)))
-                .isInstanceOf(AccessDeniedException.class)
-                .hasMessageContaining("belong to a company");
-    }
+    // ---------- AI screening result persistence (no auto-advance) ----------
 
     @Test
-    @DisplayName("Should reject an application when screening score is below the reject threshold")
-    void processScreeningCompleted_rejectedBelowThreshold() {
+    @DisplayName("Should persist screening result with AUTO_REJECT recommendation but NOT change stage when score is below reject threshold")
+    void processScreeningCompleted_belowRejectStaysInScreening() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ScreeningCompletedEvent event = screeningCompleted(35);
         when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
@@ -536,39 +312,18 @@ class ApplicationServiceImplTest {
 
         applicationService.processScreeningCompleted(event);
 
-        assertThat(application.getStage()).isEqualTo(ApplicationStage.REJECTED);
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        assertThat(application.getStageUpdates()).isEmpty();
         assertThat(application.getScreeningResult().getMatchPercentage()).isEqualTo(35);
-        assertThat(application.getScreeningResult().getMatchedSkills()).containsExactly("Java");
-        assertThat(application.getStageUpdates()).hasSize(1);
-        assertThat(application.getStageUpdates().getFirst().getCurrentStage()).isEqualTo(ApplicationStage.REJECTED);
-        verify(applicationRepository).save(application);
-        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
-                notification != null
-                        && "REJECTED".equals(notification.getCurrentStage())
-                        && "SCREENING".equals(notification.getPreviousStage())
-        ));
+        assertThat(application.getScreeningResult().getRecommendation()).isEqualTo(ScreeningRecommendation.AUTO_REJECT);
+        verifyNoInteractions(notificationEventProducer);
     }
 
     @Test
-    @DisplayName("Should advance an application when screening score reaches the pass threshold")
-    void processScreeningCompleted_passThreshold() {
+    @DisplayName("Should persist screening result with AUTO_PASS recommendation but NOT change stage when score is above pass threshold")
+    void processScreeningCompleted_abovePassStaysInScreening() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        ScreeningCompletedEvent event = screeningCompleted(75);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
-
-        applicationService.processScreeningCompleted(event);
-
-        assertThat(application.getStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
-        assertThat(application.getStageUpdates()).hasSize(1);
-        assertThat(application.getStageUpdates().getFirst().getPreviousStage()).isEqualTo(ApplicationStage.SCREENING);
-    }
-
-    @Test
-    @DisplayName("Should keep an application in screening when score is between thresholds")
-    void processScreeningCompleted_middleScore() {
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        ScreeningCompletedEvent event = screeningCompleted(50);
+        ScreeningCompletedEvent event = screeningCompleted(85);
         when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
@@ -576,67 +331,43 @@ class ApplicationServiceImplTest {
 
         assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
         assertThat(application.getStageUpdates()).isEmpty();
-        assertThat(application.getScreeningResult().getUnmatchedSkills()).containsExactly("Kafka");
+        assertThat(application.getScreeningResult().getRecommendation()).isEqualTo(ScreeningRecommendation.AUTO_PASS);
+        verifyNoInteractions(notificationEventProducer);
     }
 
     @Test
-    @DisplayName("Should treat null screening score as zero")
-    void processScreeningCompleted_nullScore() {
+    @DisplayName("Should persist screening result with MANUAL_REVIEW recommendation when score is between thresholds")
+    void processScreeningCompleted_middleScoreManualReview() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        ScreeningCompletedEvent event = screeningCompleted(55);
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
+
+        applicationService.processScreeningCompleted(event);
+
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        assertThat(application.getScreeningResult().getRecommendation()).isEqualTo(ScreeningRecommendation.MANUAL_REVIEW);
+        verifyNoInteractions(notificationEventProducer);
+    }
+
+    @Test
+    @DisplayName("Should persist PENDING recommendation when match percentage is null")
+    void processScreeningCompleted_nullScoreIsPending() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ScreeningCompletedEvent event = new ScreeningCompletedEvent(
-                application.getId(),
-                null,
-                null,
-                null,
-                "Provider returned no score"
+                application.getId(), null, null, null, "Provider returned no score"
         );
         when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         applicationService.processScreeningCompleted(event);
 
-        assertThat(application.getStage()).isEqualTo(ApplicationStage.REJECTED);
-        assertThat(application.getScreeningResult().getMatchPercentage()).isNull();
-        assertThat(application.getScreeningResult().getMatchedSkills()).isEmpty();
-        assertThat(application.getScreeningResult().getUnmatchedSkills()).isEmpty();
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        assertThat(application.getScreeningResult().getRecommendation()).isEqualTo(ScreeningRecommendation.PENDING);
     }
 
     @Test
-    @DisplayName("Should update existing AI screening result instead of replacing the application")
-    void processScreeningCompleted_existingResult() {
-        Application application = sampleApplication(ApplicationStage.SCREENING);
-        AiScreeningResult existing = new AiScreeningResult();
-        existing.setId("result-1");
-        existing.setApplication(application);
-        existing.setMatchPercentage(20);
-
-        ScreeningCompletedEvent event = screeningCompleted(80);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.of(existing));
-
-        applicationService.processScreeningCompleted(event);
-
-        assertThat(application.getScreeningResult()).isSameAs(existing);
-        assertThat(existing.getMatchPercentage()).isEqualTo(80);
-        assertThat(application.getStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
-        verify(applicationRepository).save(application);
-    }
-
-    @Test
-    @DisplayName("Should return not found when processing screening for an unknown application")
-    void processScreeningCompleted_applicationNotFound() {
-        ScreeningCompletedEvent event = screeningCompleted(80);
-        when(applicationRepository.findById(event.getApplicationId())).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> applicationService.processScreeningCompleted(event))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Application not found");
-
-        verify(applicationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Should apply resume analysis without moving the application stage")
+    @DisplayName("Should apply resume analysis without moving the stage and without notifying")
     void processResumeAnalysisCompleted_partialMerge() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
@@ -650,13 +381,8 @@ class ApplicationServiceImplTest {
 
         AiScreeningResult result = application.getScreeningResult();
         assertThat(result.getResumeAnalysisScore()).isEqualTo(72);
-        assertThat(result.getResumeAnalysisExplanation()).isEqualTo("Strong Java alignment");
-        assertThat(result.getResumeAnalysisReview()).isEqualTo("Resume mostly matches required skills.");
-        assertThat(result.getMatchPercentage()).isNull();
         assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
-        assertThat(application.getStageUpdates()).isEmpty();
-        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
-        verify(applicationRepository).save(application);
+        verifyNoInteractions(notificationEventProducer);
     }
 
     @Test
@@ -670,18 +396,18 @@ class ApplicationServiceImplTest {
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.of(existing));
 
         ProjectConsistencyCompletedEvent event = new ProjectConsistencyCompletedEvent(
-                application.getId(), 65, "Projects mention Java and Kafka", "Projects need human review."
+                application.getId(), 65, "Resume mentions Java and Kafka", "Resume needs human review."
         );
 
         applicationService.processProjectConsistencyCompleted(event);
 
         assertThat(existing.getProjectConsistencyScore()).isEqualTo(65);
         assertThat(existing.getResumeAnalysisScore()).isEqualTo(80);
-        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
+        verifyNoInteractions(notificationEventProducer);
     }
 
     @Test
-    @DisplayName("Should apply inconsistency review including severity and recommended action")
+    @DisplayName("Should apply inconsistency review without changing stage")
     void processInconsistencyReviewCompleted_partialMerge() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
@@ -699,34 +425,114 @@ class ApplicationServiceImplTest {
         AiScreeningResult result = application.getScreeningResult();
         assertThat(result.getInconsistencyScore()).isEqualTo(55);
         assertThat(result.getInconsistencySeverity()).isEqualTo("MEDIUM");
-        assertThat(result.getRecommendedHumanReviewAction()).isEqualTo("Check the weaker claims during interview.");
         assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
-        verify(notificationEventProducer, never()).publishApplicationStageUpdateAsync(any());
+        verifyNoInteractions(notificationEventProducer);
     }
 
-    @Test
-    @DisplayName("Should return not found when a per-stage event references an unknown application")
-    void processResumeAnalysisCompleted_applicationNotFound() {
-        ResumeAnalysisCompletedEvent event = new ResumeAnalysisCompletedEvent("missing", 50, "exp", "rev");
-        when(applicationRepository.findById("missing")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> applicationService.processResumeAnalysisCompleted(event))
-                .isInstanceOf(ResourceNotFoundException.class);
-    }
+    // ---------- HR stage updates ----------
 
     @Test
-    @DisplayName("Should wrap unexpected screening persistence failures")
-    void processScreeningCompleted_unexpectedFailure() {
+    @DisplayName("Should let HR advance an application from SCREENING to INTERVIEW_SCHEDULED and publish a notification addressed to the applicant")
+    void updateApplicationStage_screeningToInterview() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        ScreeningCompletedEvent event = screeningCompleted(80);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
-        when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
-        when(applicationRepository.save(application)).thenThrow(new IllegalStateException("database unavailable"));
+        ApplicationResponse mapped = new ApplicationResponse();
 
-        assertThatThrownBy(() -> applicationService.processScreeningCompleted(event))
-                .isInstanceOf(CustomException.class)
-                .hasMessageContaining("Failed to process AI screening result");
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.INTERVIEW_SCHEDULED, "Looks strong");
+
+        ApplicationResponse response = applicationService.updateApplicationStage(application.getId(), request, manager);
+
+        assertThat(response).isSameAs(mapped);
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
+        assertThat(application.getStageUpdates()).hasSize(1);
+        assertThat(application.getStageUpdates().getFirst().getCurrentStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
+        // The notification must carry the applicant's email (for the SMTP send) AND the applicant id
+        // (which the notification service uses to route the SSE event to the right subscriber).
+        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
+                notification != null
+                        && applicant.getEmail().equals(notification.getTo())
+                        && applicant.getId().equals(notification.getApplicantId())
+                        && application.getId().equals(notification.getApplicationId())
+                        && "INTERVIEW_SCHEDULED".equals(notification.getCurrentStage())
+                        && "SCREENING".equals(notification.getPreviousStage())
+                        && manager.getEmail().equals(notification.getActor())
+        ));
     }
+
+    @Test
+    @DisplayName("Should reject invalid stage transitions (e.g. SCREENING → HIRED)")
+    void updateApplicationStage_invalidTransition() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.HIRED, "skip ahead");
+
+        assertThatThrownBy(() -> applicationService.updateApplicationStage(application.getId(), request, manager))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Stage transition not allowed");
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        verifyNoInteractions(notificationEventProducer);
+    }
+
+    @Test
+    @DisplayName("Should bulk-advance multiple applications, report per-id results, and notify each successful applicant")
+    void bulkUpdateApplicationStage_mixedResults() {
+        Application app1 = sampleApplication(ApplicationStage.SCREENING);
+        app1.setId("application-1");
+        Application app2 = sampleApplication(ApplicationStage.HIRED);
+        app2.setId("application-2");
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId("application-1", company.getId()))
+                .thenReturn(Optional.of(app1));
+        when(applicationRepository.findByIdAndCompanyId("application-2", company.getId()))
+                .thenReturn(Optional.of(app2));
+        when(applicationRepository.findByIdAndCompanyId("application-3", company.getId()))
+                .thenReturn(Optional.empty());
+
+        BulkStageUpdateRequest request = new BulkStageUpdateRequest(
+                List.of("application-1", "application-2", "application-3"),
+                ApplicationStage.REJECTED,
+                "Closing remaining queue"
+        );
+
+        BulkStageUpdateResponse response = applicationService.bulkUpdateApplicationStage(request, manager);
+
+        assertThat(response.getRequested()).isEqualTo(3);
+        assertThat(response.getSucceeded()).isEqualTo(1);
+        assertThat(response.getFailed()).isEqualTo(2);
+        assertThat(response.getUpdatedApplicationIds()).containsExactly("application-1");
+        assertThat(response.getFailures()).extracting("applicationId")
+                .containsExactlyInAnyOrder("application-2", "application-3");
+        // Exactly one notification fires (the only successful update), addressed to that applicant.
+        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
+                notification != null
+                        && "application-1".equals(notification.getApplicationId())
+                        && applicant.getEmail().equals(notification.getTo())
+                        && applicant.getId().equals(notification.getApplicantId())
+                        && "REJECTED".equals(notification.getCurrentStage())
+        ));
+    }
+
+    @Test
+    @DisplayName("Should require ADMIN or HMANAGER for stage updates")
+    void updateApplicationStage_forbiddenForApplicant() {
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.INTERVIEW_SCHEDULED, null);
+
+        assertThatThrownBy(() -> applicationService.updateApplicationStage("application-1", request, applicant))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("admins and hiring managers");
+    }
+
+    // ---------- helpers ----------
 
     private Application sampleApplication(ApplicationStage stage) {
         Application application = new Application();

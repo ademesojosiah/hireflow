@@ -1,10 +1,13 @@
 package com.hireflow.hireflow.data.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
@@ -25,7 +28,10 @@ import java.util.List;
 @Table(
         name = "ai_screening_results",
         uniqueConstraints = @UniqueConstraint(name = "uk_ai_screening_application", columnNames = "application_id"),
-        indexes = @Index(name = "idx_ai_screening_application", columnList = "application_id")
+        indexes = {
+                @Index(name = "idx_ai_screening_application", columnList = "application_id"),
+                @Index(name = "idx_ai_screening_recommendation", columnList = "recommendation")
+        }
 )
 @Getter
 @Setter
@@ -42,6 +48,10 @@ public class AiScreeningResult extends BaseEntity {
     @Max(100)
     @Column
     private Integer matchPercentage;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recommendation", nullable = false)
+    private ScreeningRecommendation recommendation = ScreeningRecommendation.PENDING;
 
     @ElementCollection
     @CollectionTable(name = "ai_screening_matched_skills", joinColumns = @JoinColumn(name = "result_id"))

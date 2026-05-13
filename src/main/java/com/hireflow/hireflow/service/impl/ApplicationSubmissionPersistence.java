@@ -1,7 +1,6 @@
 package com.hireflow.hireflow.service.impl;
 
 import com.hireflow.hireflow.data.model.Application;
-import com.hireflow.hireflow.data.model.ApplicationAnswer;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.JobQuestion;
 import com.hireflow.hireflow.data.model.ResumeProfile;
@@ -13,7 +12,6 @@ import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.JobStatus;
 import com.hireflow.hireflow.enums.Role;
-import com.hireflow.hireflow.event.events.ApplicationSubmittedAnswer;
 import com.hireflow.hireflow.event.events.ApplicationSubmittedEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
@@ -28,10 +26,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -131,17 +127,6 @@ public class ApplicationSubmissionPersistence {
         ResumeProfile resumeProfile = application.getResumeProfile();
         User applicant = application.getApplicant();
 
-        List<ApplicationSubmittedAnswer> answerPayload = new ArrayList<>();
-        for (ApplicationAnswer answer : application.getAnswers()) {
-            JobQuestion question = answer.getJobQuestion();
-            answerPayload.add(new ApplicationSubmittedAnswer(
-                    question.getId(),
-                    answer.getQuestionSnapshot(),
-                    question.getAnswer(),
-                    answer.getAnswer()
-            ));
-        }
-
         return new ApplicationSubmittedEvent(
                 application.getId(),
                 job.getId(),
@@ -156,8 +141,7 @@ public class ApplicationSubmissionPersistence {
                 job.getSkills().stream().map(link -> link.getSkill().getName()).toList(),
                 resumeProfile.getSkills().stream().map(link -> link.getSkill().getName()).toList(),
                 job.getAutoRejectThreshold(),
-                job.getAutoPassThreshold(),
-                answerPayload
+                job.getAutoPassThreshold()
         );
     }
 }

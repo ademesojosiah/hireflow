@@ -126,7 +126,7 @@ Job posters need to define role-specific technical questions so candidates are a
 ### Technical Direction
 
 - Applicant answer capture is implemented: when an application is submitted, each question and the applicant's answer are stored as a `questionSnapshot` — an immutable copy of the question text at submission time. This decouples answers from any future edits to the original `JobQuestion`.
-- The `questionSnapshot` (question text + applicant answer + internal answer guide) is forwarded to AI screening so the screener can compare answers against the intended guide without exposing the guide to the applicant.
+- **Q&A is reserved for human reviewers and is intentionally NOT sent to the AI screening service.** The `ApplicationSubmittedEvent` published to Kafka excludes the answers payload entirely. The full Q&A is persisted in `application_answers`, returned in its own section of `GET /api/v1/applications/{id}`, and shown to admins/HR for manual review during the SCREENING stage.
 - Add AI-suggested questions from job descriptions only after the poster approves them.
 - Add optional scoring rubrics per question when simple answer guides are not enough.
 - Add assessment integrity signals such as paste detection, typing time, and focus changes.
@@ -178,7 +178,7 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
   - resume/job analysis score, explanation, and HR review note
   - project consistency score, explanation, and HR review note
   - inconsistency risk score, severity, explanation, review note, and recommended human-review action
-- The combined `matchPercentage` remains the only score used for automatic threshold movement.
+- The combined `matchPercentage` no longer triggers automatic stage advancement. Instead, the AI screening service compares it against the job listing's `autoPassThreshold` / `autoRejectThreshold` and writes a `ScreeningRecommendation` flag (`AUTO_PASS` / `MANUAL_REVIEW` / `AUTO_REJECT` / `PENDING`) onto `AiScreeningResult`. The application stays in `SCREENING` until an admin/HR manually advances it.
 
 - Add stronger parsing for projects, certifications, tools, seniority, and role-specific experience.
 - Compare resume claims directly against job requirements.
@@ -188,7 +188,7 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
 ### Technical Direction
 
 - AI screening runs as 4 independent Kafka events per application: `resume-screening`, `project-consistency`, `inconsistency-analysis`, and `match-summary`. Each event updates only its own fields on `AiScreeningResult` via null-safe partial-merge setters.
-- OpenAI integration is toggled with `@ConditionalOnProperty(name = "openai.enabled", havingValue = "true")`. When the flag is off, the deterministic fallback screener is used. Both beans implement the same screener interface; the OpenAI bean carries `@Primary` so it wins when both are active.
+- OpenAI is always enabled in the ai-Screening service. Each AI screener has two beans implementing the same interface — the deterministic `Basic*` and the `OpenAi*` variant carrying `@Primary`. If an OpenAI call fails at runtime, the `OpenAi*` screener catches the exception and delegates to the injected `Basic*` fallback. No feature flag gates this; the fallback path is the resilience boundary.
 - Keep raw resume metadata separate from normalized profile fields.
 - Store AI output as explainable structured data.
 - Add validation around AI-generated fields before using them in ranking.
@@ -213,7 +213,7 @@ Applicants may list projects that do not align with their claimed skills, senior
   - project descriptions that do not mention the claimed stack
   - repeated vague project wording
   - projects unrelated to the target role
-- Current basic implementation uses available resume summary/profile evidence as a placeholder until structured project extraction exists.
+- Current basic implementation uses **only the resume summary** as evidence. Applicant Q&A answers are explicitly excluded from the project consistency screener — Q&A is reserved for human review.
 
 ### Technical Direction
 
@@ -288,6 +288,44 @@ HR managers cannot self-register. They must be onboarded by an admin who control
 
 ---
 
+## 9. HR-Driven Stage Transitions (No AI Auto-Advance)
+
+### Problem
+
+The previous flow had the AI screening service automatically advancing applications past `SCREENING` based on thresholds (`autoPassThreshold` and `autoRejectThreshold`). This made the AI a silent decision-maker — exactly what HireFlow's decision principles forbid.
+
+### Current Plan
+
+- After AI screening finishes, applications **stay in `SCREENING`**. The AI never advances or rejects an application by itself.
+- The threshold comparison still runs — its only effect is to write a `ScreeningRecommendation` flag onto `AiScreeningResult`:
+
+  | Recommendation | Condition |
+  |---|---|
+  | `AUTO_PASS` | `matchPercentage >= job.autoPassThreshold` |
+  | `AUTO_REJECT` | `matchPercentage <  job.autoRejectThreshold` |
+  | `MANUAL_REVIEW` | between the two thresholds |
+  | `PENDING` | `matchPercentage` not yet computed |
+
+- Admins and hiring managers see the recommendation flag and filter the applicant list with it: `GET /api/v1/applications/jobs/{jobId}?recommendation=AUTO_PASS` (or `AUTO_REJECT`, `MANUAL_REVIEW`).
+- HR then triggers the stage change manually:
+  - **Single:** `PATCH /api/v1/applications/{id}/stage` with `{ targetStage, reason }`
+  - **Bulk:** `PATCH /api/v1/applications/stage/bulk` with `{ applicationIds[], targetStage, reason }`
+- Only the HR-triggered endpoints publish the `APPLICATION_STAGE_UPDATED` Kafka notification. The AI screening pipeline no longer publishes stage-change notifications.
+
+### Technical Direction
+
+- Allowed forward transitions (centralised in `ApplicationStageTransitions`):
+  - `SCREENING → INTERVIEW_SCHEDULED | REJECTED`
+  - `INTERVIEW_SCHEDULED → OFFER_SENT | REJECTED`
+  - `OFFER_SENT → HIRED | REJECTED`
+  - `HIRED` and `REJECTED` are terminal.
+- Each transition appends to the `StageUpdate` audit trail with the actor's email and supplied reason.
+- The bulk endpoint is best-effort: it returns `{ requested, succeeded, failed, updatedApplicationIds[], failures[] }` so HR sees per-id outcomes without rolling back the whole batch on one bad row.
+- Stage-update persistence is split from notification publishing per the same-class proxy rule: `ApplicationStageUpdatePersistence` runs the `@Transactional` write; `ApplicationServiceImpl` invokes the `@Async` notification producer after the transaction commits.
+- The Q&A section (`application_answers`) is returned in `GET /api/v1/applications/{id}` so HR can review applicant responses before pulling the trigger. **AI never reads these answers.**
+
+---
+
 ## Part 2: General/Strategic Alignment
 ## 10. AI Inconsistency Scoring - detect inconsistency
 
@@ -300,15 +338,14 @@ AI can help detect inconsistencies across resumes, assessments, interviews, but 
 - AI screening explains matched and unmatched skills.
 - No full cross-source inconsistency score is currently documented.
 
-- Compare claims across:
-  - resume
-  - applicant profile
-  - project descriptions
-  - assessment answers
-  - interview feedback
+- Compare claims across (AI scope, current build):
+  - applicant skill list
+  - resume summary
+- Q&A answers and interview feedback are explicitly **excluded** from the AI inconsistency check — they belong to the human review section.
+- Future expansion may add project descriptions and interview feedback once those signals are structured, but Q&A will remain human-only.
 - Flag contradictions such as:
-  - claiming a framework but failing basic questions about it
-  - listing a project stack that does not appear in the project explanation
+  - claiming a skill not supported by the resume
+  - claimed seniority not matching resume evidence
 - Show inconsistency as a review flag, not an automatic rejection.
 - Event-driven stage updates notify candidates when their status changes.
 - `StageUpdate` provides an append-only audit history.

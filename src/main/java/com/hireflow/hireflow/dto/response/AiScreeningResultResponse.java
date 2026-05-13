@@ -1,5 +1,6 @@
 package com.hireflow.hireflow.dto.response;
 
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -17,6 +18,7 @@ public class AiScreeningResultResponse {
     private String id;
     private String applicationId;
     private Integer matchPercentage;
+    private ScreeningRecommendation recommendation;
     private List<String> matchedSkills;
     private List<String> unmatchedSkills;
     private String aiNarrativeSummary;

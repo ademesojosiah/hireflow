@@ -5,8 +5,13 @@ import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
+import com.hireflow.hireflow.dto.request.BulkStageUpdateRequest;
+import com.hireflow.hireflow.dto.request.StageUpdateRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
+import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse;
+import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse.BulkStageUpdateFailure;
 import com.hireflow.hireflow.enums.Role;
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import com.hireflow.hireflow.event.events.EmailNotificationEvent;
 import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
 import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
@@ -21,7 +26,6 @@ import com.hireflow.hireflow.mapper.ApplicationMapper;
 import com.hireflow.hireflow.service.ApplicationService;
 import com.hireflow.hireflow.service.JobListingService;
 import com.hireflow.hireflow.service.UserService;
-import com.hireflow.hireflow.service.result.ApplicationScreeningResult;
 import com.hireflow.hireflow.service.result.ApplicationSubmissionResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +34,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -44,6 +51,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final ApplicationMapper applicationMapper;
     private final ApplicationSubmissionPersistence applicationSubmissionPersistence;
     private final ApplicationScreeningPersistence applicationScreeningPersistence;
+    private final ApplicationStageUpdatePersistence applicationStageUpdatePersistence;
 
     @Override
     public ApplicationResponse applyToJob(String jobId, ApplyToJobRequest request, User user) {
@@ -87,15 +95,74 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ApplicationResponse> findByJob(String jobId, User user, Pageable pageable) {
+    public Page<ApplicationResponse> findByJob(String jobId, ScreeningRecommendation recommendation, User user, Pageable pageable) {
         User manager = requireCompanyManager(user);
         JobListing job = jobListingService.findJobListingById(jobId);
         if (!manager.getCompany().getId().equals(job.getCompany().getId())) {
             throw new AccessDeniedException("You can only view applications for your company");
         }
 
-        return applicationRepository.findAllByJobListing_IdAndCompanyId(jobId, manager.getCompany().getId(), pageable)
-                .map(applicationMapper::toSummaryResponse);
+        Page<Application> applications = recommendation == null
+                ? applicationRepository.findAllByJobListing_IdAndCompanyId(jobId, manager.getCompany().getId(), pageable)
+                : applicationRepository.findAllByJobListing_IdAndCompanyIdAndScreeningResult_Recommendation(
+                jobId, manager.getCompany().getId(), recommendation, pageable);
+
+        return applications.map(applicationMapper::toSummaryResponse);
+    }
+
+    @Override
+    public ApplicationResponse updateApplicationStage(String applicationId, StageUpdateRequest request, User user) {
+        try {
+            User manager = requireCompanyManager(user);
+            EmailNotificationEvent notification = applicationStageUpdatePersistence.updateStage(
+                    applicationId, request.getTargetStage(), request.getReason(), manager);
+            notificationEventProducer.publishApplicationStageUpdateAsync(notification);
+            Application application = applicationRepository.findByIdAndCompanyId(applicationId, manager.getCompany().getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+            return applicationMapper.toResponse(application);
+        } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
+            log.error(ex.getMessage());
+            throw ex;
+        } catch (Exception ex) {
+            log.error("Stage update failed for application {}: {}", applicationId, ex.getMessage());
+            throw new CustomException("Stage update failed: Internal Server Error");
+        }
+    }
+
+    @Override
+    public BulkStageUpdateResponse bulkUpdateApplicationStage(BulkStageUpdateRequest request, User user) {
+        User manager = requireCompanyManager(user);
+
+        List<String> updated = new ArrayList<>();
+        List<BulkStageUpdateFailure> failures = new ArrayList<>();
+        List<EmailNotificationEvent> pendingNotifications = new ArrayList<>();
+
+        for (String applicationId : request.getApplicationIds()) {
+            try {
+                EmailNotificationEvent notification = applicationStageUpdatePersistence.updateStage(
+                        applicationId, request.getTargetStage(), request.getReason(), manager);
+                pendingNotifications.add(notification);
+                updated.add(applicationId);
+            } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
+                log.warn("Bulk stage update skipped {}: {}", applicationId, ex.getMessage());
+                failures.add(new BulkStageUpdateFailure(applicationId, ex.getMessage()));
+            } catch (Exception ex) {
+                log.error("Bulk stage update failed for {}: {}", applicationId, ex.getMessage());
+                failures.add(new BulkStageUpdateFailure(applicationId, "Internal Server Error"));
+            }
+        }
+
+        for (EmailNotificationEvent notification : pendingNotifications) {
+            notificationEventProducer.publishApplicationStageUpdateAsync(notification);
+        }
+
+        return new BulkStageUpdateResponse(
+                request.getApplicationIds().size(),
+                updated.size(),
+                failures.size(),
+                updated,
+                failures
+        );
     }
 
     @Override
@@ -119,9 +186,8 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     public void processScreeningCompleted(ScreeningCompletedEvent event) {
         try {
-            ApplicationScreeningResult result = applicationScreeningPersistence.finalizeScreening(event);
-            notificationEventProducer.publishApplicationStageUpdateAsync(result.getNotificationEvent());
-            log.info("Processed AI screening result for application {}", event.getApplicationId());
+            applicationScreeningPersistence.finalizeScreening(event);
+            log.info("Persisted AI screening result for application {}; stage transition deferred to HR", event.getApplicationId());
         } catch (ResourceNotFoundException | CustomException ex) {
             log.error(ex.getMessage());
             throw ex;
@@ -187,10 +253,10 @@ public class ApplicationServiceImpl implements ApplicationService {
     private User requireCompanyManager(User user) {
         User refreshed = requireAuthenticatedUser(user);
         if (refreshed == null || (refreshed.getRole() != Role.ADMIN && refreshed.getRole() != Role.HMANAGER)) {
-            throw new AccessDeniedException("Only admins and hiring managers can view job applications");
+            throw new AccessDeniedException("Only admins and hiring managers can manage job applications");
         }
         if (refreshed.getCompany() == null) {
-            throw new AccessDeniedException("You must belong to a company to view job applications");
+            throw new AccessDeniedException("You must belong to a company to manage job applications");
         }
         return refreshed;
     }
@@ -205,5 +271,4 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
         return refreshed;
     }
-
 }

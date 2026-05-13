@@ -189,12 +189,10 @@ class ApplicationControllerTest {
 
         assertThat(applicationRepository.findAll()).hasSize(1);
 
+
+        Application persisted = applicationRepository.findAll().getFirst();
         verify(aiScreeningEventProducer, timeout(1000)).publishApplicationSubmittedAsync(argThat(event ->
-                event != null
-                        && event.getAnswers() != null
-                        && event.getAnswers().size() == 1
-                        && questionId.equals(event.getAnswers().getFirst().getQuestionId())
-                        && "Mentions Kafka.".equals(event.getAnswers().getFirst().getExpectedAnswerGuide())
+                event != null && persisted.getId().equals(event.getApplicationId())
         ));
     }
 

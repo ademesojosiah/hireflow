@@ -2,7 +2,11 @@ package com.hireflow.hireflow.service;
 
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
+import com.hireflow.hireflow.dto.request.BulkStageUpdateRequest;
+import com.hireflow.hireflow.dto.request.StageUpdateRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
+import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse;
+import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import com.hireflow.hireflow.event.events.InconsistencyReviewCompletedEvent;
 import com.hireflow.hireflow.event.events.ProjectConsistencyCompletedEvent;
 import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
@@ -18,7 +22,11 @@ public interface ApplicationService {
 
     ApplicationResponse findMyApplication(String applicationId, User user);
 
-    Page<ApplicationResponse> findByJob(String jobId, User user, Pageable pageable);
+    Page<ApplicationResponse> findByJob(String jobId, ScreeningRecommendation recommendation, User user, Pageable pageable);
+
+    ApplicationResponse updateApplicationStage(String applicationId, StageUpdateRequest request, User user);
+
+    BulkStageUpdateResponse bulkUpdateApplicationStage(BulkStageUpdateRequest request, User user);
 
     void processResumeAnalysisCompleted(ResumeAnalysisCompletedEvent event);
 
