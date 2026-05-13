@@ -9,15 +9,47 @@ import com.hireflow.hireflow.dto.response.AiScreeningStageResponse;
 import com.hireflow.hireflow.dto.response.ApplicationAnswerResponse;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.dto.response.StageUpdateResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
 import java.util.List;
 
 @Component
+@RequiredArgsConstructor
 public class ApplicationMapper {
 
+    private final ResumeProfileMapper resumeProfileMapper;
+
+    public ApplicationResponse toSummaryResponse(Application application) {
+        ApplicationResponse response = mapBaseResponse(application);
+        response.setStageUpdates(List.of());
+        response.setAnswers(List.of());
+        return response;
+    }
+
     public ApplicationResponse toResponse(Application application) {
+        ApplicationResponse response = mapBaseResponse(application);
+
+        if (application.getResumeProfile() != null) {
+            response.setResumeProfile(resumeProfileMapper.toResponse(application.getResumeProfile()));
+        }
+
+        response.setScreeningResult(toScreeningResponse(application.getScreeningResult()));
+        response.setStageUpdates(application.getStageUpdates() == null ? List.of()
+                : application.getStageUpdates().stream()
+                .sorted(Comparator.comparing(StageUpdate::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(this::toStageUpdateResponse)
+                .toList());
+        response.setAnswers(application.getAnswers() == null ? List.of()
+                : application.getAnswers().stream()
+                .sorted(Comparator.comparing(ApplicationAnswer::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(this::toAnswerResponse)
+                .toList());
+        return response;
+    }
+
+    private ApplicationResponse mapBaseResponse(Application application) {
         ApplicationResponse response = new ApplicationResponse();
         response.setId(application.getId());
         response.setStage(application.getStage());
@@ -39,17 +71,6 @@ public class ApplicationMapper {
             }
         }
 
-        response.setScreeningResult(toScreeningResponse(application.getScreeningResult()));
-        response.setStageUpdates(application.getStageUpdates() == null ? List.of()
-                : application.getStageUpdates().stream()
-                .sorted(Comparator.comparing(StageUpdate::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .map(this::toStageUpdateResponse)
-                .toList());
-        response.setAnswers(application.getAnswers() == null ? List.of()
-                : application.getAnswers().stream()
-                .sorted(Comparator.comparing(ApplicationAnswer::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .map(this::toAnswerResponse)
-                .toList());
         return response;
     }
 
@@ -70,6 +91,7 @@ public class ApplicationMapper {
 
         return new AiScreeningResultResponse(
                 result.getId(),
+                result.getApplication() == null ? null : result.getApplication().getId(),
                 result.getMatchPercentage(),
                 result.getMatchedSkills(),
                 result.getUnmatchedSkills(),
@@ -91,7 +113,8 @@ public class ApplicationMapper {
                 ),
                 result.getInconsistencySeverity(),
                 result.getRecommendedHumanReviewAction(),
-                result.getCreatedAt()
+                result.getCreatedAt(),
+                result.getUpdatedAt()
         );
     }
 

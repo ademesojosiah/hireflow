@@ -125,8 +125,8 @@ Job posters need to define role-specific technical questions so candidates are a
 
 ### Technical Direction
 
-- Add applicant answer capture when the application assessment flow is introduced.
-- Use the stored answer guide for AI-assisted grading or HR review.
+- Applicant answer capture is implemented: when an application is submitted, each question and the applicant's answer are stored as a `questionSnapshot` — an immutable copy of the question text at submission time. This decouples answers from any future edits to the original `JobQuestion`.
+- The `questionSnapshot` (question text + applicant answer + internal answer guide) is forwarded to AI screening so the screener can compare answers against the intended guide without exposing the guide to the applicant.
 - Add AI-suggested questions from job descriptions only after the poster approves them.
 - Add optional scoring rubrics per question when simple answer guides are not enough.
 - Add assessment integrity signals such as paste detection, typing time, and focus changes.
@@ -187,6 +187,8 @@ Hiring teams need fast resume screening, but candidates should not be rejected b
 
 ### Technical Direction
 
+- AI screening runs as 4 independent Kafka events per application: `resume-screening`, `project-consistency`, `inconsistency-analysis`, and `match-summary`. Each event updates only its own fields on `AiScreeningResult` via null-safe partial-merge setters.
+- OpenAI integration is toggled with `@ConditionalOnProperty(name = "openai.enabled", havingValue = "true")`. When the flag is off, the deterministic fallback screener is used. Both beans implement the same screener interface; the OpenAI bean carries `@Primary` so it wins when both are active.
 - Keep raw resume metadata separate from normalized profile fields.
 - Store AI output as explainable structured data.
 - Add validation around AI-generated fields before using them in ranking.
@@ -232,13 +234,57 @@ Only the Application Service owns a database. The AI Screening Service and Notif
 
 | Service | DB | Role |
 |---|---|---|
-| Application Service | YES â€” owns all tables | Persistence authority; emits domain events |
-| AI Screening Service | NO | Consumes `ApplicationSubmitted`; runs AI; publishes `ScreeningCompleted` / `ScreeningFailed` |
-| Notification Service | NO | Consumes stage-change events; sends email/SMS; publishes `NotificationSent` |
+| Application Service | YES — owns all tables | Persistence authority; emits domain events |
+| AI Screening Service | NO | Consumes per-stage screening topics; runs AI; publishes results back |
+| Notification Service | NO | Consumes stage-change and invite events; sends email + SSE; stateless |
 
-**Reliability without a DB:** Retry durability for the stateless services is provided by Kafka â€” retry topics with exponential backoff, dead-letter topics (DLTs) for poison messages. If AI screening fails, the AI service publishes `ScreeningFailed` and the Application Service marks the result as failed. No local DB required.
+**Current Kafka event topics:**
+
+| Topic | Direction | Description |
+|---|---|---|
+| `application-stage-updated` | hireflow → notification | Triggers stage-change email + SSE to applicant |
+| `resume-screening` | hireflow → ai-screening | Per-stage: resume/job analysis |
+| `project-consistency` | hireflow → ai-screening | Per-stage: project consistency analysis |
+| `inconsistency-analysis` | hireflow → ai-screening | Per-stage: cross-source inconsistency detection |
+| `match-summary` | hireflow → ai-screening | Per-stage: combined match percentage and summary |
+| `screening-completed` | ai-screening → hireflow | Final screening result merged back into AiScreeningResult |
+| `hmanager-invite-email` | hireflow → notification | HMANAGER invite link email delivery |
+
+**Reliability without a DB:** Retry durability for the stateless services is provided by Kafka — retry topics with exponential backoff, dead-letter topics (DLTs) for poison messages. If AI screening fails, the AI service publishes `ScreeningFailed` and the Application Service marks the result as failed. No local DB required.
 
 **When to revisit:** Add a database to a stateless service only if its data access patterns require independent querying at scale, or compliance mandates a separate audit store with long-term retention.
+
+---
+
+---
+
+## 8. Invite-Based HMANAGER Onboarding
+
+### Problem
+
+HR managers cannot self-register. They must be onboarded by an admin who controls which email addresses receive access and which company they belong to.
+
+### Current Plan
+
+- `HMANAGER` is blocked from registering through `POST /api/v1/auth/register`. Attempting it returns a 400 error.
+- `ADMIN` can still self-register through the same endpoint.
+- Admin sends an invite via `POST /api/v1/admin/invite-manager` with the HR manager's email and an optional `companyId`.
+- The backend generates a UUID token, stores it in `hmanager_invitations` with status `PENDING`, and publishes a `HMANAGER_INVITE` Kafka event.
+- The Notification Service delivers a branded email to the invited address containing a link: `{frontendBaseUrl}/accept-invite?token={token}`.
+- The HR manager opens the link, fills in their name and password, and submits to `POST /api/v1/auth/accept-invite`.
+- The backend validates the token, checks the invite is still `PENDING`, creates a verified `HMANAGER` user (optionally linked to the company), marks the invite `ACCEPTED`, and returns a JWT `AuthResponse` — the user is logged in immediately with no extra OTP step needed.
+
+**Invitation statuses:** `PENDING`, `ACCEPTED` only. There is no expiry on invitations; they remain valid indefinitely until accepted.
+
+**Duplicate guards:**
+- Cannot invite an email that already has a registered account.
+- Cannot send a second invite to an email that already has a `PENDING` invite.
+
+### Technical Direction
+
+- Add invite revocation (`DELETE /api/v1/admin/invitations/{id}`) when admins need to cancel outstanding invites.
+- Add pagination to `GET /api/v1/admin/invitations` for audit visibility.
+- If invite expiry is required in the future, add `expiresAt` to `HManagerInvitation` and introduce an `EXPIRED` status — the current model does not need it.
 
 ---
 

@@ -24,6 +24,7 @@ public class ApplicationResponse {
     private String jobTitle;
     private String companyId;
     private String companyName;
+    private ResumeProfileResponse resumeProfile;
     private AiScreeningResultResponse screeningResult;
     private List<StageUpdateResponse> stageUpdates;
     private List<ApplicationAnswerResponse> answers;

@@ -11,4 +11,6 @@ public interface NotificationEventProducer {
     void publishApplicationStageUpdateAsync(EmailNotificationEvent event);
 
     void publishApplicationStageUpdate(EmailNotificationEvent event);
+
+    void publishHManagerInviteEmail(String to, String inviteLink);
 }

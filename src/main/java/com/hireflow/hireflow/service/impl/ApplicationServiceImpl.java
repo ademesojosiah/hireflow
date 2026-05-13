@@ -29,6 +29,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
@@ -61,13 +62,15 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ApplicationResponse> findMyApplications(User user, Pageable pageable) {
         User applicant = requireApplicant(user);
         return applicationRepository.findAllByApplicant_Id(applicant.getId(), pageable)
-                .map(applicationMapper::toResponse);
+                .map(applicationMapper::toSummaryResponse);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ApplicationResponse findMyApplication(String applicationId, User user) {
         User applicant = requireApplicant(user);
         Application application = applicationRepository.findByIdAndApplicant_Id(applicationId, applicant.getId())
@@ -76,6 +79,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ApplicationResponse> findByJob(String jobId, User user, Pageable pageable) {
         User manager = requireCompanyManager(user);
         JobListing job = jobListingService.findJobListingById(jobId);
@@ -84,7 +88,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
 
         return applicationRepository.findAllByJobListing_IdAndCompanyId(jobId, manager.getCompany().getId(), pageable)
-                .map(applicationMapper::toResponse);
+                .map(applicationMapper::toSummaryResponse);
     }
 
     @Override

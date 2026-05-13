@@ -15,6 +15,7 @@ import java.util.List;
 public class AiScreeningResultResponse {
 
     private String id;
+    private String applicationId;
     private Integer matchPercentage;
     private List<String> matchedSkills;
     private List<String> unmatchedSkills;
@@ -25,4 +26,5 @@ public class AiScreeningResultResponse {
     private String inconsistencySeverity;
     private String recommendedHumanReviewAction;
     private Instant createdAt;
+    private Instant updatedAt;
 }

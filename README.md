@@ -45,12 +45,14 @@ HireFlow is a hiring management platform designed to help companies streamline t
 
 - **JWT-based authentication** — stateless sessions, signed tokens, configurable expiration.
 - **OTP email verification** — 6-digit codes, 10-minute expiry, automatic regeneration on expired-OTP login attempts.
+- **Invite-based HMANAGER onboarding** — admins invite hiring managers by email; the invitee receives a secure token link (72-hour expiry) to create their account. `HMANAGER` and `ADMIN` roles are blocked from self-registration.
 - **Kafka-backed notifications** — email requests are emitted as notification events for the Notification service; request handlers never send SMTP directly.
 - **Role-based access control** — `APPLICANT`, `HMANAGER`, `ADMIN`.
-- **Candidate applications** — applicants can apply to open jobs, see their applications, and hiring teams can list applications by job.
-- **Kafka-backed AI screening** — application submission publishes an AI screening event; completed screening results are consumed back into HireFlow.
-- **Transparent application updates** — application actions/stages are published to the Notification service, which can stream updates to clients over SSE.
-- **Role-specific job questions** — admins and hiring managers can add simple technical questions and internal answer guides while creating or updating a job.
+- **Candidate applications** — applicants can apply to open jobs, answer role-specific technical questions, see their applications, and hiring teams can list applications by job.
+- **Per-stage AI screening** — application submission triggers four independent AI screening stages (resume analysis, project consistency, inconsistency review, match summary), each publishing its own Kafka event and updating the screening result row partially as results arrive.
+- **OpenAI integration with deterministic fallback** — each screening stage uses the OpenAI API when `OPENAI_ENABLED=true`; a keyword-based deterministic screener is used automatically when OpenAI is disabled or unavailable.
+- **Transparent application updates** — application stage transitions publish notification events to Kafka; the Notification service sends emails and broadcasts SSE updates to connected applicants in real time.
+- **Role-specific job questions** — admins and hiring managers can add technical questions with internal answer guides when creating or updating a job; guides are forwarded to AI screening but never exposed to applicants.
 - **Direct-to-Cloudinary signed uploads** — the backend generates a short-lived Cloudinary signature; the frontend uploads the file directly to Cloudinary and sends back only the resulting URL. The server never handles the file bytes.
 - **Centralised exception handling** — `@RestControllerAdvice` returns a consistent `ApiResponse` envelope for every error class.
 - **Comprehensive test coverage** — every service method and controller endpoint has both unit and full-stack integration tests.
@@ -96,14 +98,18 @@ HireFlow is designed for a three-service split where only one service owns the d
 | Service | Owns DB | Responsibility |
 |---|---|---|
 | **Application Service** | YES | All persistence; emits domain events |
-| **AI Screening Service** | NO | Consumes `ApplicationSubmitted`; publishes `ScreeningCompleted` / `ScreeningFailed` |
+| **AI Screening Service** | NO | Consumes `ApplicationSubmitted`; publishes partial screening events and final `ScreeningCompleted` / `ScreeningFailed` |
 | **Notification Service** | NO | Consumes notification/email events; sends email/SMS; publishes `NotificationSent` when needed |
 
 Current Kafka events implemented in this repository:
-- `EmailNotificationEvent` to the notification email topic
-- `ApplicationSubmittedEvent` to the AI screening topic
-- `ScreeningCompletedEvent` consumed back from the AI screening service
-- `APPLICATION_STAGE_UPDATED` notification events for applicant-facing timelines/SSE broadcasts
+- `EmailNotificationEvent` (types: `OTP_VERIFICATION`, `COMPANY_WELCOME`, `APPLICATION_STAGE_UPDATED`, `HMANAGER_INVITE`) → notification email topic
+- `ApplicationSubmittedEvent` → AI screening service
+- `ResumeAnalysisCompletedEvent` → resume analysis topic (AI service → HireFlow)
+- `ProjectConsistencyCompletedEvent` → project consistency topic (AI service → HireFlow)
+- `InconsistencyReviewCompletedEvent` → inconsistency review topic (AI service → HireFlow)
+- `ScreeningCompletedEvent` → screening completed topic (AI service → HireFlow)
+
+Each partial AI event updates only its own fields on `AiScreeningResult` — results arrive and are persisted independently as stages complete.
 
 This keeps the database boundary clean. The AI and Notification services are stateless processing workers — if they fail, Kafka retries the message. If their failure needs to be recorded (e.g. `ScreeningFailed`), they publish an event and the Application Service writes the result.
 
@@ -242,10 +248,20 @@ erDiagram
         Instant updatedAt
     }
 
+    ApplicationAnswer {
+        String id PK "UUID"
+        String application_id FK "required, indexed"
+        String job_question_id FK "required, indexed"
+        String questionSnapshot "TEXT, required"
+        String answer "TEXT, required"
+        Instant createdAt
+        Instant updatedAt
+    }
+
     AiScreeningResult {
         String id PK "UUID"
         String application_id FK "unique, required, indexed"
-        Integer matchPercentage "0-100"
+        Integer matchPercentage "0-100, nullable until final screening"
         String aiNarrativeSummary "TEXT, internal only"
         Integer resumeAnalysisScore "0-100"
         String resumeAnalysisExplanation "TEXT"
@@ -273,11 +289,24 @@ erDiagram
         Instant updatedAt
     }
 
+    HManagerInvitation {
+        String id PK "UUID"
+        String token UK "UUID, unique, indexed"
+        String email "required"
+        String companyId "nullable — links to Company on accept"
+        String invitedBy "admin userId"
+        InvitationStatus status "enum: PENDING|ACCEPTED|EXPIRED, default PENDING"
+        Instant expiresAt "invitedAt + 72h"
+        Instant createdAt
+        Instant updatedAt
+    }
+
     Company ||--o{ JobListing : "owns (1:N, cascade ALL, orphanRemoval)"
     Company ||--o| User : "employs (1:1 via company_id, nullable for APPLICANT)"
     JobListing ||--o{ JobListingSkill : "has (1:N, cascade ALL, orphanRemoval)"
     JobListing ||--o{ JobQuestion : "has questions (1:N, cascade ALL, orphanRemoval)"
     JobListing ||--o{ Application : "receives applications (1:N)"
+    JobQuestion ||--o{ ApplicationAnswer : "answered by applications (1:N)"
     Skill ||--o{ JobListingSkill : "appears in (1:N)"
     Skill ||--o{ ResumeProfileSkill : "appears in (1:N)"
     User ||--o| ResumeProfile : "has (1:1, FK on resume_profile)"
@@ -286,6 +315,7 @@ erDiagram
     ResumeProfile ||--o{ WorkExperience : "has (1:N, cascade ALL, orphanRemoval)"
     ResumeProfile ||--o{ Education : "has (1:N, cascade ALL, orphanRemoval)"
     ResumeProfile ||--o{ Application : "used for (1:N)"
+    Application ||--o{ ApplicationAnswer : "captures answers (1:N, cascade ALL, orphanRemoval)"
     Application ||--o{ StageUpdate : "records (1:N, cascade ALL, orphanRemoval)"
     Application ||--o| AiScreeningResult : "has active result (1:0..1, cascade ALL, orphanRemoval)"
     BaseEntity ||--|| Company : "extends"
@@ -299,8 +329,10 @@ erDiagram
     BaseEntity ||--|| WorkExperience : "extends"
     BaseEntity ||--|| Education : "extends"
     BaseEntity ||--|| Application : "extends"
+    BaseEntity ||--|| ApplicationAnswer : "extends"
     BaseEntity ||--|| AiScreeningResult : "extends"
     BaseEntity ||--|| StageUpdate : "extends"
+    BaseEntity ||--|| HManagerInvitation : "extends"
 ```
 
 #### Detailed Entity Reference
@@ -405,6 +437,7 @@ Relationships:
 Relationships:
 - `JobQuestion many -> JobListing` (`@ManyToOne(fetch=LAZY)`, NOT NULL)
 - `JobListing 1:N JobQuestion` is managed through cascade ALL and orphanRemoval.
+- `JobQuestion 1:N ApplicationAnswer` captures submitted applicant responses.
 
 Service rule: job questions are intentionally simple. Create/update accepts `question` + `answer`; updating a job with a non-null `questions` list replaces the existing child list.
 
@@ -515,8 +548,29 @@ Relationships:
 - `Application many -> User` through `applicant`
 - `Application many -> JobListing`
 - `Application many -> ResumeProfile`
+- `Application 1:N ApplicationAnswer` (`@OneToMany`, cascade ALL, orphanRemoval)
 - `Application 1:N StageUpdate` (`@OneToMany`, cascade ALL, orphanRemoval)
 - `Application 1:0..1 AiScreeningResult` (`@OneToOne`, cascade ALL, orphanRemoval)
+
+---
+
+**`application_answers`** — applicant answers to job-specific technical questions
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `application_id` | UUID | FK -> `applications.id`, NOT NULL, indexed (`idx_application_answer_application`) | parent application |
+| `job_question_id` | UUID | FK -> `job_questions.id`, NOT NULL, indexed (`idx_application_answer_job_question`) | source question |
+| `questionSnapshot` | TEXT | NOT NULL | immutable copy of the prompt at submission time |
+| `answer` | TEXT | NOT NULL | applicant's submitted answer |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `UNIQUE (application_id, job_question_id)` — `uk_application_answer_question`
+
+Relationships:
+- `ApplicationAnswer many -> Application` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
+- `ApplicationAnswer many -> JobQuestion` (`@ManyToOne(fetch=LAZY)`)
+
+Service rule: applicants must answer every question attached to the target job, and submitted answers may not reference unknown question IDs. Answers are included in `ApplicationSubmittedEvent` for AI screening, with the question text and internal answer guide.
 
 ---
 
@@ -525,7 +579,7 @@ Relationships:
 |---|---|---|---|
 | `id` | UUID | PK | inherited |
 | `application_id` | UUID | FK -> `applications.id`, UNIQUE, NOT NULL, indexed | one active result per application |
-| `matchPercentage` | INT | NOT NULL, 0-100 | validates AI score |
+| `matchPercentage` | INT | nullable, 0-100 | final screening score used for automatic stage thresholds |
 | `aiNarrativeSummary` | TEXT | nullable | internal-only screening explanation |
 | `resumeAnalysisScore` | INT | nullable, 0-100 | resume/job analysis score |
 | `resumeAnalysisExplanation` | TEXT | nullable | resume/job analysis explanation |
@@ -573,6 +627,7 @@ Relationships:
 | JobListing → JobListingSkill | 1 : N | `JobListingSkill.jobListing` | ALL, orphanRemoval |
 | JobListing → JobQuestion | 1 : N | `JobQuestion.jobListing` | ALL, orphanRemoval |
 | JobListing → Application | 1 : N | `Application.jobListing` | none |
+| JobQuestion → ApplicationAnswer | 1 : N | `ApplicationAnswer.jobQuestion` | none |
 | Skill → JobListingSkill | 1 : N | `JobListingSkill.skill` | none |
 | User → ResumeProfile | 1 : 0..1 | `ResumeProfile.user` (FK on weaker side) | none |
 | User → Application | 1 : N | `Application.applicant` | none |
@@ -581,12 +636,36 @@ Relationships:
 | ResumeProfile → WorkExperience | 1 : N | `WorkExperience.resumeProfile` | ALL, orphanRemoval |
 | ResumeProfile → Education | 1 : N | `Education.resumeProfile` | ALL, orphanRemoval |
 | Skill → ResumeProfileSkill | 1 : N | `ResumeProfileSkill.skill` | none |
+| Application → ApplicationAnswer | 1 : N | `ApplicationAnswer.application` | ALL, orphanRemoval |
 | Application → StageUpdate | 1 : N | `StageUpdate.application` | ALL, orphanRemoval |
 | Application → AiScreeningResult | 1 : 0..1 | `AiScreeningResult.application` | ALL, orphanRemoval |
 
+---
+
+**`hmanager_invitations`** — pending/accepted/expired invitations for hiring manager accounts
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `token` | VARCHAR | UNIQUE, NOT NULL, indexed | UUID token — included in the invite link |
+| `email` | VARCHAR | NOT NULL | intended recipient |
+| `companyId` | VARCHAR | nullable | company to link on account creation |
+| `invitedBy` | VARCHAR | NOT NULL | admin's user ID |
+| `status` | ENUM (STRING) | NOT NULL, default `PENDING` | `PENDING`, `ACCEPTED`, `EXPIRED` |
+| `expiresAt` | TIMESTAMP | NOT NULL | `invitedAt + 72 hours` |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Constraints: `UNIQUE (token)` — `uk_hmanager_invitation_token`
+
+Rules:
+- Only one `PENDING` invitation may exist per email address at a time.
+- Accepting the invitation creates a verified `HMANAGER` user (no OTP step) and marks the invitation `ACCEPTED`.
+- Tokens are checked for expiry on acceptance; expired tokens set status to `EXPIRED` and return 400.
+
+---
+
 #### Planned Entities (v3.1+)
 
-`InterviewSlot`, assessment/session entities, applicant technical answers, and future recommendation/audit expansion.
+`InterviewSlot`, assessment/session entities, and future recommendation/audit expansion.
 
 
 ---
@@ -705,11 +784,64 @@ Errors:
 
 ### Auth
 
-| Method | Path                    | Description                                              | Auth        |
-|--------|-------------------------|----------------------------------------------------------|-------------|
-| POST   | `/api/v1/auth/register` | Register a new user; sends OTP to email.                 | Public      |
-| POST   | `/api/v1/auth/verify-otp` | Verify the OTP and activate the account.              | Public      |
-| POST   | `/api/v1/auth/login`    | Authenticate and receive a JWT.                          | Public      |
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/auth/register` | Register a new `APPLICANT` or `ADMIN` account; sends OTP to email. `HMANAGER` registration via this endpoint is blocked — use the invite flow. | Public |
+| POST | `/api/v1/auth/verify-otp` | Verify the OTP and activate the account. | Public |
+| POST | `/api/v1/auth/login` | Authenticate and receive a JWT. | Public |
+| POST | `/api/v1/auth/accept-invite` | Complete HR manager registration using an invite token. Returns a JWT on success — the account is immediately active (no OTP step). | Public |
+
+Accept-invite request body:
+
+```json
+{
+  "token": "<invite-token-from-email-link>",
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "password": "min-8-chars"
+}
+```
+
+### Admin
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/admin/invite-manager` | Invite a hiring manager by email. Optionally associate the invite with a company. | ADMIN |
+
+Invite request body:
+
+```json
+{
+  "email": "manager@company.com",
+  "companyId": "<optional-company-id>"
+}
+```
+
+Sends a registration email to the invitee. Only one pending invitation per email is allowed at a time.
+
+### Applications
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/applications/jobs/{jobId}` | Apply to an open job. The body is optional unless the job has technical questions. | APPLICANT |
+| GET | `/api/v1/applications?page=0&size=10` | List the authenticated applicant's applications. | APPLICANT |
+| GET | `/api/v1/applications/{id}` | Retrieve one of the authenticated applicant's applications. | APPLICANT |
+| GET | `/api/v1/applications/jobs/{jobId}?page=0&size=10` | List applications for a job owned by the hiring manager's company. | HMANAGER, ADMIN |
+
+Apply request body:
+
+```json
+{
+  "answers": [
+    {
+      "questionId": "job-question-id",
+      "answer": "Applicant's answer, up to 5000 characters."
+    }
+  ]
+}
+```
+
+When a job has questions, every question must have a non-blank answer. Unknown question IDs are rejected. Submitted answers are stored with a question snapshot and are forwarded to the AI screening event with the internal answer guide.
 
 ### Resume Profiles
 

@@ -54,6 +54,11 @@ public class KafkaNotificationEventProducer implements NotificationEventProducer
         publish(event);
     }
 
+    @Override
+    public void publishHManagerInviteEmail(String to, String inviteLink) {
+        publish(EmailNotificationEvent.hManagerInvite(to, inviteLink));
+    }
+
     private void publish(EmailNotificationEvent event) {
         kafkaTemplate.send(notificationEmailTopic, event.getTo(), event)
                 .whenComplete((result, ex) -> {

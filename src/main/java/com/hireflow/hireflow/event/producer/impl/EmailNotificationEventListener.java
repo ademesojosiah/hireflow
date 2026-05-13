@@ -30,6 +30,8 @@ public class EmailNotificationEventListener {
                     );
             case EmailNotificationEvent.APPLICATION_STAGE_UPDATED ->
                     notificationEventProducer.publishApplicationStageUpdate(event);
+            case EmailNotificationEvent.HMANAGER_INVITE ->
+                    notificationEventProducer.publishHManagerInviteEmail(event.getTo(), event.getInviteLink());
             default -> log.warn("Unknown email notification event type: {}", event.getType());
         }
     }

@@ -14,6 +14,7 @@ public class EmailNotificationEvent {
     public static final String OTP_VERIFICATION = "OTP_VERIFICATION";
     public static final String COMPANY_WELCOME = "COMPANY_WELCOME";
     public static final String APPLICATION_STAGE_UPDATED = "APPLICATION_STAGE_UPDATED";
+    public static final String HMANAGER_INVITE = "HMANAGER_INVITE";
 
     private String type;
     private String to;
@@ -30,6 +31,7 @@ public class EmailNotificationEvent {
     private String reason;
     private String actor;
     private String message;
+    private String inviteLink;
 
     public EmailNotificationEvent(String type, String to, String otp, String firstName, String companyName) {
         this.type = type;
@@ -37,6 +39,14 @@ public class EmailNotificationEvent {
         this.otp = otp;
         this.firstName = firstName;
         this.companyName = companyName;
+    }
+
+    public static EmailNotificationEvent hManagerInvite(String to, String inviteLink) {
+        EmailNotificationEvent event = new EmailNotificationEvent();
+        event.setType(HMANAGER_INVITE);
+        event.setTo(to);
+        event.setInviteLink(inviteLink);
+        return event;
     }
 
     public static EmailNotificationEvent applicationStageUpdated(

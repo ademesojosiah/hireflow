@@ -358,7 +358,7 @@ class ApplicationServiceImplTest {
         when(userService.findUserById(applicant.getId())).thenReturn(applicant);
         when(applicationRepository.findAllByApplicant_Id(applicant.getId(), pageable))
                 .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
 
         Page<ApplicationResponse> response = applicationService.findMyApplications(applicant, pageable);
 
@@ -415,7 +415,7 @@ class ApplicationServiceImplTest {
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
         when(applicationRepository.findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable))
                 .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
 
         Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), manager, pageable);
 
@@ -436,7 +436,7 @@ class ApplicationServiceImplTest {
         when(jobListingService.findJobListingById(job.getId())).thenReturn(job);
         when(applicationRepository.findAllByJobListing_IdAndCompanyId(job.getId(), company.getId(), pageable))
                 .thenReturn(new PageImpl<>(List.of(application), pageable, 1));
-        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+        when(applicationMapper.toSummaryResponse(application)).thenReturn(mapped);
 
         Page<ApplicationResponse> response = applicationService.findByJob(job.getId(), manager, pageable);
 

@@ -1,6 +1,7 @@
 package com.hireflow.hireflow.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.JobListing;
@@ -294,6 +295,7 @@ class ApplicationControllerTest {
         ResumeProfile applicantProfile = saveResumeProfile(applicant, List.of(java));
         ResumeProfile otherProfile = saveResumeProfile(otherApplicant, List.of(kafka));
         Application ownApplication = saveApplication(applicant, job, applicantProfile, ApplicationStage.SCREENING);
+        saveScreeningResult(ownApplication);
         saveApplication(otherApplicant, job, otherProfile, ApplicationStage.REJECTED);
 
         mockMvc.perform(get("/api/v1/applications")
@@ -304,6 +306,11 @@ class ApplicationControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content.length()").value(1))
                 .andExpect(jsonPath("$.data.content[0].id").value(ownApplication.getId()))
+                .andExpect(jsonPath("$.data.content[0].stage").value("SCREENING"))
+                .andExpect(jsonPath("$.data.content[0].applicantId").value(applicant.getId()))
+                .andExpect(jsonPath("$.data.content[0].jobListingId").value(job.getId()))
+                .andExpect(jsonPath("$.data.content[0].resumeProfile").doesNotExist())
+                .andExpect(jsonPath("$.data.content[0].screeningResult").doesNotExist())
                 .andExpect(jsonPath("$.data.totalElements").value(1));
     }
 
@@ -331,13 +338,33 @@ class ApplicationControllerTest {
         JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
         ResumeProfile profile = saveResumeProfile(applicant, List.of(java));
         Application application = saveApplication(applicant, job, profile, ApplicationStage.SCREENING);
+        saveScreeningResult(application);
 
         mockMvc.perform(get("/api/v1/applications/" + application.getId())
                         .with(user(principalFor(applicant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(application.getId()))
                 .andExpect(jsonPath("$.data.jobTitle").value("Backend Engineer"))
-                .andExpect(jsonPath("$.data.applicantEmail").value("ada@example.com"));
+                .andExpect(jsonPath("$.data.applicantEmail").value("ada@example.com"))
+                .andExpect(jsonPath("$.data.resumeProfile.id").value(profile.getId()))
+                .andExpect(jsonPath("$.data.resumeProfile.resumePdfUrl").value(profile.getResumePdfUrl()))
+                .andExpect(jsonPath("$.data.resumeProfile.skills[0].name").value("Java"))
+                .andExpect(jsonPath("$.data.screeningResult.applicationId").value(application.getId()))
+                .andExpect(jsonPath("$.data.screeningResult.matchPercentage").value(82))
+                .andExpect(jsonPath("$.data.screeningResult.matchedSkills[0]").value("Java"))
+                .andExpect(jsonPath("$.data.screeningResult.unmatchedSkills[0]").value("Kafka"))
+                .andExpect(jsonPath("$.data.screeningResult.aiNarrativeSummary").value("Strong backend fit."))
+                .andExpect(jsonPath("$.data.screeningResult.resumeAnalysis.score").value(88))
+                .andExpect(jsonPath("$.data.screeningResult.resumeAnalysis.explanation").value("Resume aligns well."))
+                .andExpect(jsonPath("$.data.screeningResult.resumeAnalysis.review").value("Proceed."))
+                .andExpect(jsonPath("$.data.screeningResult.projectConsistency.score").value(76))
+                .andExpect(jsonPath("$.data.screeningResult.projectConsistency.explanation").value("Projects support skills."))
+                .andExpect(jsonPath("$.data.screeningResult.projectConsistency.review").value("Good project evidence."))
+                .andExpect(jsonPath("$.data.screeningResult.inconsistencyReview.score").value(12))
+                .andExpect(jsonPath("$.data.screeningResult.inconsistencyReview.explanation").value("Low inconsistency risk."))
+                .andExpect(jsonPath("$.data.screeningResult.inconsistencyReview.review").value("No blocking concerns."))
+                .andExpect(jsonPath("$.data.screeningResult.inconsistencySeverity").value("LOW"))
+                .andExpect(jsonPath("$.data.screeningResult.recommendedHumanReviewAction").value("Schedule interview."));
     }
 
     @Test
@@ -367,7 +394,8 @@ class ApplicationControllerTest {
         JobListing job = saveJob(company, JobStatus.OPEN, List.of(java));
         ResumeProfile applicantProfile = saveResumeProfile(applicant, List.of(java));
         ResumeProfile otherProfile = saveResumeProfile(otherApplicant, List.of(kafka));
-        saveApplication(applicant, job, applicantProfile, ApplicationStage.SCREENING);
+        Application firstApplication = saveApplication(applicant, job, applicantProfile, ApplicationStage.SCREENING);
+        saveScreeningResult(firstApplication);
         saveApplication(otherApplicant, job, otherProfile, ApplicationStage.REJECTED);
 
         mockMvc.perform(get("/api/v1/applications/jobs/" + job.getId())
@@ -377,7 +405,9 @@ class ApplicationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content.length()").value(2))
                 .andExpect(jsonPath("$.data.totalElements").value(2))
-                .andExpect(jsonPath("$.data.content[0].companyId").value(company.getId()));
+                .andExpect(jsonPath("$.data.content[0].companyId").value(company.getId()))
+                .andExpect(jsonPath("$.data.content[0].resumeProfile").doesNotExist())
+                .andExpect(jsonPath("$.data.content[0].screeningResult").doesNotExist());
     }
 
     @Test
@@ -499,5 +529,26 @@ class ApplicationControllerTest {
         application.setCompanyId(job.getCompany().getId());
         application.setStage(stage);
         return applicationRepository.save(application);
+    }
+
+    private AiScreeningResult saveScreeningResult(Application application) {
+        AiScreeningResult result = new AiScreeningResult();
+        result.setApplication(application);
+        result.setMatchPercentage(82);
+        result.setMatchedSkills(List.of("Java"));
+        result.setUnmatchedSkills(List.of("Kafka"));
+        result.setAiNarrativeSummary("Strong backend fit.");
+        result.setResumeAnalysisScore(88);
+        result.setResumeAnalysisExplanation("Resume aligns well.");
+        result.setResumeAnalysisReview("Proceed.");
+        result.setProjectConsistencyScore(76);
+        result.setProjectConsistencyExplanation("Projects support skills.");
+        result.setProjectConsistencyReview("Good project evidence.");
+        result.setInconsistencyScore(12);
+        result.setInconsistencySeverity("LOW");
+        result.setInconsistencyExplanation("Low inconsistency risk.");
+        result.setInconsistencyReview("No blocking concerns.");
+        result.setRecommendedHumanReviewAction("Schedule interview.");
+        return aiScreeningResultRepository.save(result);
     }
 }

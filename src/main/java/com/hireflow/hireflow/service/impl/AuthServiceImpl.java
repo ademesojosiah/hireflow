@@ -3,6 +3,7 @@ package com.hireflow.hireflow.service.impl;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.dto.request.LoginRequest;
 import com.hireflow.hireflow.dto.request.RegisterRequest;
+import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.dto.request.VerifyOtpRequest;
 import com.hireflow.hireflow.dto.response.AuthResponse;
 import com.hireflow.hireflow.event.events.EmailNotificationEvent;
@@ -42,6 +43,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void register(RegisterRequest request) {
         try {
+            if (request.getRole() == Role.HMANAGER) {
+                throw new CustomException("This role cannot self-register. Please contact your administrator.");
+            }
+
             if (userService.existsByEmail(request.getEmail())) {
                 throw new DuplicateResourceException("An account with this email already exists");
             }
