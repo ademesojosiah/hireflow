@@ -111,8 +111,7 @@ public class SecurityConfig {
         configuration.setAllowCredentials(true);
 
         configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                "https://yourfrontend.com"
+                "http://localhost:5173"
         ));
 
         configuration.setAllowedMethods(List.of(
