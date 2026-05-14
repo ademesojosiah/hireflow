@@ -15,7 +15,7 @@ jobs:
 
       - name: Create production env file
         run: |
-          echo "${{ secrets.PROD_ENV }}" > .env
+          echo "${{ secrets.PROD_ENV }}" > /src/main/resources/env.properties
 
       - name: Stop old container
         run: docker rm -f hireflow-main-service || true
