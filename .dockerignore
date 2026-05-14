@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+target
+**/*.iml
+**/*.log
+
+# Local-only / sensitive
+src/main/resources/env.properties
+src/main/resources/env-examples.properties
+
+# Docs / planning
+*.md
+!HELP.md
