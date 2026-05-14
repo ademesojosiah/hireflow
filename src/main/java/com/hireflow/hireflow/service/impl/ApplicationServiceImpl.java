@@ -10,6 +10,7 @@ import com.hireflow.hireflow.dto.request.StageUpdateRequest;
 import com.hireflow.hireflow.dto.response.ApplicationResponse;
 import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse;
 import com.hireflow.hireflow.dto.response.BulkStageUpdateResponse.BulkStageUpdateFailure;
+import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.enums.ScreeningRecommendation;
 import com.hireflow.hireflow.event.events.EmailNotificationEvent;
@@ -135,11 +136,12 @@ public class ApplicationServiceImpl implements ApplicationService {
 
         List<String> updated = new ArrayList<>();
         List<BulkStageUpdateFailure> failures = new ArrayList<>();
+        String bulkReason = bulkStageUpdateReason(request, manager);
 
         for (String applicationId : request.getApplicationIds()) {
             try {
                 EmailNotificationEvent notification = applicationStageUpdatePersistence.updateStage(
-                        applicationId, request.getTargetStage(), request.getReason(), manager);
+                        applicationId, request.getTargetStage(), bulkReason, manager);
                 notificationEventProducer.publishApplicationStageUpdate(notification);
                 updated.add(applicationId);
             } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
@@ -158,6 +160,16 @@ public class ApplicationServiceImpl implements ApplicationService {
                 updated,
                 failures
         );
+    }
+
+    private String bulkStageUpdateReason(BulkStageUpdateRequest request, User actor) {
+        if (request.getReason() != null && !request.getReason().isBlank()) {
+            return request.getReason();
+        }
+        if (request.getTargetStage() == ApplicationStage.REJECTED) {
+            return "After careful review, we will not be moving forward with your application at this time.";
+        }
+        return "Bulk stage update to " + request.getTargetStage().name() + " by " + actor.getEmail();
     }
 
     @Override

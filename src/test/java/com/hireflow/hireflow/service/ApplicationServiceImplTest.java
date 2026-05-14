@@ -581,6 +581,36 @@ class ApplicationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should use a generic reason when bulk stage update omits one")
+    void bulkUpdateApplicationStage_usesGenericReasonWhenMissing() {
+        Application app1 = sampleApplication(ApplicationStage.SCREENING);
+        app1.setId("application-1");
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId("application-1", company.getId()))
+                .thenReturn(Optional.of(app1));
+
+        BulkStageUpdateRequest request = new BulkStageUpdateRequest(
+                List.of("application-1"),
+                ApplicationStage.REJECTED,
+                null
+        );
+
+        BulkStageUpdateResponse response = applicationService.bulkUpdateApplicationStage(request, manager);
+
+        assertThat(response.getSucceeded()).isEqualTo(1);
+        assertThat(app1.getStageUpdates()).hasSize(1);
+        assertThat(app1.getStageUpdates().getFirst().getReason())
+                .isEqualTo("After careful review, we will not be moving forward with your application at this time.");
+        verify(notificationEventProducer).publishApplicationStageUpdate(argThat(notification ->
+                notification != null
+                        && "application-1".equals(notification.getApplicationId())
+                        && "After careful review, we will not be moving forward with your application at this time."
+                        .equals(notification.getReason())
+        ));
+    }
+
+    @Test
     @DisplayName("Should publish bulk-update notifications strictly in the request order, one applicant after the other")
     void bulkUpdateApplicationStage_preservesPerApplicantOrder() {
         // Three different applicants so we can prove each notification carries its own routing fields.
