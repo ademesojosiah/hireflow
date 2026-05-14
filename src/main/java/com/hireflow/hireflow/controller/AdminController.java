@@ -2,7 +2,10 @@ package com.hireflow.hireflow.controller;
 
 import com.hireflow.hireflow.dto.request.InviteHManagerRequest;
 import com.hireflow.hireflow.dto.response.ApiResponse;
+import com.hireflow.hireflow.dto.response.ApplicationVolumeResponse;
+import com.hireflow.hireflow.dto.response.TimeToHireResponse;
 import com.hireflow.hireflow.security.UserPrincipal;
+import com.hireflow.hireflow.service.AdminMetricsService;
 import com.hireflow.hireflow.service.InvitationService;
 import com.hireflow.hireflow.service.StaffService;
 import jakarta.validation.Valid;
@@ -26,6 +29,7 @@ public class AdminController {
 
     private final InvitationService invitationService;
     private final StaffService staffService;
+    private final AdminMetricsService adminMetricsService;
 
     @PostMapping("/invite-manager")
     public ResponseEntity<ApiResponse<Void>> inviteHManager(
@@ -52,5 +56,25 @@ public class AdminController {
             @AuthenticationPrincipal UserPrincipal principal) {
         staffService.deleteStaff(staffId, principal.getUser());
         return ResponseEntity.ok(ApiResponse.success("Staff removed successfully"));
+    }
+
+    @GetMapping("/metrics/application-volume")
+    public ResponseEntity<ApiResponse<ApplicationVolumeResponse>> getApplicationVolume(
+            @RequestParam(required = false) String jobListingId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Application volume retrieved",
+                adminMetricsService.getApplicationVolume(principal.getUser(), jobListingId)
+        ));
+    }
+
+    @GetMapping("/metrics/time-to-hire")
+    public ResponseEntity<ApiResponse<TimeToHireResponse>> getTimeToHire(
+            @RequestParam(required = false) String jobListingId,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Time to hire retrieved",
+                adminMetricsService.getTimeToHire(principal.getUser(), jobListingId)
+        ));
     }
 }

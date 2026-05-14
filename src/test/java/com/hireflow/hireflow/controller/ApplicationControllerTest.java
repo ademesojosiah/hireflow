@@ -150,12 +150,12 @@ class ApplicationControllerTest {
                         && Integer.valueOf(40).equals(event.getAutoRejectThreshold())
                         && Integer.valueOf(75).equals(event.getAutoPassThreshold())
         ));
-        verify(notificationEventProducer, timeout(1000)).publishApplicationStageUpdateAsync(argThat(event ->
+        verify(notificationEventProducer).publishApplicationStageUpdate(argThat(event ->
                 event != null
                         && persisted.getId().equals(event.getApplicationId())
                         && "APPLIED".equals(event.getCurrentStage())
         ));
-        verify(notificationEventProducer, timeout(1000)).publishApplicationStageUpdateAsync(argThat(event ->
+        verify(notificationEventProducer).publishApplicationStageUpdate(argThat(event ->
                 event != null
                         && persisted.getId().equals(event.getApplicationId())
                         && "SCREENING".equals(event.getCurrentStage())
