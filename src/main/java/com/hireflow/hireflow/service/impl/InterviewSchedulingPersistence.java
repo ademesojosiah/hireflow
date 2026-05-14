@@ -59,6 +59,7 @@ public class InterviewSchedulingPersistence {
                 application.getId(),
                 request.getStartTime(),
                 request.getEndTime(),
+                request.getTimezone(),
                 request.getInterviewerEmail()
         );
 

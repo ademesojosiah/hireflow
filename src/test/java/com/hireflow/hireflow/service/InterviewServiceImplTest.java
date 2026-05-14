@@ -100,7 +100,7 @@ class InterviewServiceImplTest {
         when(interviewSlotRepository.findByApplication_IdAndStatus(application.getId(), InterviewStatus.SCHEDULED))
                 .thenReturn(Optional.empty());
         when(meetingLinkProvider.provider()).thenReturn(MeetingProvider.GOOGLE_MEET);
-        when(meetingLinkProvider.createMeetingLink(any(), any(), any(), any()))
+        when(meetingLinkProvider.createMeetingLink(any(), any(), any(), any(), any()))
                 .thenReturn("https://meet.google.com/abc-defg-hij");
         when(interviewSlotRepository.save(any(InterviewSlot.class))).thenAnswer(invocation -> {
             InterviewSlot slot = invocation.getArgument(0);

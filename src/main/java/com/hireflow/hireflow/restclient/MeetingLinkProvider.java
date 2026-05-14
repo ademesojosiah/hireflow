@@ -21,5 +21,5 @@ public interface MeetingLinkProvider {
      * @param endTime       when the meeting ends (UTC)
      * @param organizerEmail the interviewer who owns the calendar event
      */
-    String createMeetingLink(String applicationId, Instant startTime, Instant endTime, String organizerEmail);
+    String createMeetingLink(String applicationId, Instant startTime, Instant endTime, String timezone, String organizerEmail);
 }

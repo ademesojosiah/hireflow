@@ -3,6 +3,7 @@ package com.hireflow.hireflow.restclient.impl;
 import com.hireflow.hireflow.enums.MeetingProvider;
 import com.hireflow.hireflow.restclient.MeetingLinkProvider;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
@@ -16,6 +17,7 @@ import java.time.Instant;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "hireflow.meeting.provider", havingValue = "stub", matchIfMissing = true)
 public class StubGoogleMeetLinkProvider implements MeetingLinkProvider {
 
     private static final String ALPHABET = "abcdefghijklmnopqrstuvwxyz";
@@ -27,7 +29,7 @@ public class StubGoogleMeetLinkProvider implements MeetingLinkProvider {
     }
 
     @Override
-    public String createMeetingLink(String applicationId, Instant startTime, Instant endTime, String organizerEmail) {
+    public String createMeetingLink(String applicationId, Instant startTime, Instant endTime, String timezone, String organizerEmail) {
         String code = randomSegment(3) + "-" + randomSegment(4) + "-" + randomSegment(3);
         String link = "https://meet.google.com/" + code;
         log.info("Generated stub Google Meet link for application {} ({} → {}): {}",
