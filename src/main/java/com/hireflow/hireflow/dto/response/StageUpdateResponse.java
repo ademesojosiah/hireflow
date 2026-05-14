@@ -1,6 +1,7 @@
 package com.hireflow.hireflow.dto.response;
 
 import com.hireflow.hireflow.enums.ApplicationStage;
+import com.hireflow.hireflow.enums.Role;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -19,5 +20,8 @@ public class StageUpdateResponse {
     private ApplicationStage currentStage;
     private String reason;
     private String actor;
+    private String actorId;
+    private String actorEmail;
+    private Role actorRole;
     private Instant createdAt;
 }

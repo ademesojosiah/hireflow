@@ -72,6 +72,7 @@ class ApplicationServiceImplTest {
     @Mock private AiScreeningEventProducer aiScreeningEventProducer;
     @Mock private NotificationEventProducer notificationEventProducer;
     @Mock private ApplicationMapper applicationMapper;
+    @Mock private ScorecardService scorecardService;
     private ApplicationServiceImpl applicationService;
 
     private Company company;
@@ -113,7 +114,8 @@ class ApplicationServiceImplTest {
                 aiScreeningResultRepository
         );
         ApplicationStageUpdatePersistence applicationStageUpdatePersistence = new ApplicationStageUpdatePersistence(
-                applicationRepository
+                applicationRepository,
+                scorecardService
         );
         applicationService = new ApplicationServiceImpl(
                 applicationRepository,
@@ -386,6 +388,51 @@ class ApplicationServiceImplTest {
     }
 
     @Test
+    @DisplayName("Should require a submitted scorecard before moving from INTERVIEW_SCHEDULED to OFFER_SENT")
+    void updateApplicationStage_offerRequiresSubmittedScorecard() {
+        Application application = sampleApplication(ApplicationStage.INTERVIEW_SCHEDULED);
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(scorecardService.hasSubmittedScorecardForApplication(application.getId(), company.getId()))
+                .thenReturn(false);
+
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.OFFER_SENT, "Strong interview");
+
+        assertThatThrownBy(() -> applicationService.updateApplicationStage(application.getId(), request, manager))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("submitted scorecard");
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
+        verifyNoInteractions(notificationEventProducer);
+    }
+
+    @Test
+    @DisplayName("Should let HR move from INTERVIEW_SCHEDULED to OFFER_SENT after a scorecard is submitted")
+    void updateApplicationStage_offerAfterSubmittedScorecard() {
+        Application application = sampleApplication(ApplicationStage.INTERVIEW_SCHEDULED);
+        ApplicationResponse mapped = new ApplicationResponse();
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(scorecardService.hasSubmittedScorecardForApplication(application.getId(), company.getId()))
+                .thenReturn(true);
+        when(applicationMapper.toResponse(application)).thenReturn(mapped);
+
+        ApplicationResponse response = applicationService.updateApplicationStage(
+                application.getId(),
+                new StageUpdateRequest(ApplicationStage.OFFER_SENT, "Strong interview scorecard"),
+                manager
+        );
+
+        assertThat(response).isSameAs(mapped);
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.OFFER_SENT);
+        assertThat(application.getStageUpdates().getFirst().getActorId()).isEqualTo(manager.getId());
+        assertThat(application.getStageUpdates().getFirst().getActorEmail()).isEqualTo(manager.getEmail());
+        assertThat(application.getStageUpdates().getFirst().getActorRole()).isEqualTo(Role.HMANAGER);
+    }
+
+    @Test
     @DisplayName("Should apply project consistency without overwriting other stages")
     void processProjectConsistencyCompleted_partialMerge() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
@@ -432,8 +479,8 @@ class ApplicationServiceImplTest {
     // ---------- HR stage updates ----------
 
     @Test
-    @DisplayName("Should let HR advance an application from SCREENING to INTERVIEW_SCHEDULED and publish a notification addressed to the applicant")
-    void updateApplicationStage_screeningToInterview() {
+    @DisplayName("Should let HR reject a SCREENING application via the generic PATCH /stage endpoint")
+    void updateApplicationStage_screeningToRejected() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ApplicationResponse mapped = new ApplicationResponse();
 
@@ -442,25 +489,38 @@ class ApplicationServiceImplTest {
                 .thenReturn(Optional.of(application));
         when(applicationMapper.toResponse(application)).thenReturn(mapped);
 
-        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.INTERVIEW_SCHEDULED, "Looks strong");
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.REJECTED, "Not a fit");
 
         ApplicationResponse response = applicationService.updateApplicationStage(application.getId(), request, manager);
 
         assertThat(response).isSameAs(mapped);
-        assertThat(application.getStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
-        assertThat(application.getStageUpdates()).hasSize(1);
-        assertThat(application.getStageUpdates().getFirst().getCurrentStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
-        // The notification must carry the applicant's email (for the SMTP send) AND the applicant id
-        // (which the notification service uses to route the SSE event to the right subscriber).
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.REJECTED);
         verify(notificationEventProducer).publishApplicationStageUpdate(argThat(notification ->
                 notification != null
                         && applicant.getEmail().equals(notification.getTo())
                         && applicant.getId().equals(notification.getApplicantId())
-                        && application.getId().equals(notification.getApplicationId())
-                        && "INTERVIEW_SCHEDULED".equals(notification.getCurrentStage())
+                        && "REJECTED".equals(notification.getCurrentStage())
                         && "SCREENING".equals(notification.getPreviousStage())
-                        && manager.getEmail().equals(notification.getActor())
         ));
+    }
+
+    @Test
+    @DisplayName("Should refuse to advance to INTERVIEW_SCHEDULED via the generic PATCH /stage endpoint — callers must use POST /interview")
+    void updateApplicationStage_cannotReachInterviewScheduledDirectly() {
+        Application application = sampleApplication(ApplicationStage.SCREENING);
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+
+        StageUpdateRequest request = new StageUpdateRequest(ApplicationStage.INTERVIEW_SCHEDULED, "skip ahead");
+
+        assertThatThrownBy(() -> applicationService.updateApplicationStage(application.getId(), request, manager))
+                .isInstanceOf(CustomException.class)
+                .hasMessageContaining("Stage transition not allowed");
+
+        assertThat(application.getStage()).isEqualTo(ApplicationStage.SCREENING);
+        verifyNoInteractions(notificationEventProducer);
     }
 
     @Test
@@ -549,8 +609,8 @@ class ApplicationServiceImplTest {
 
         BulkStageUpdateRequest request = new BulkStageUpdateRequest(
                 List.of("application-1", "application-2", "application-3"),
-                ApplicationStage.INTERVIEW_SCHEDULED,
-                "Batch advance"
+                ApplicationStage.REJECTED,
+                "Batch closing"
         );
 
         BulkStageUpdateResponse response = applicationService.bulkUpdateApplicationStage(request, manager);

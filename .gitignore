@@ -33,3 +33,8 @@ build/
 .vscode/
 /src/main/resources/env.properties
 /src/main/resources/env-examples.properties
+
+# BACKEND_RULES.md
+# GENERAL_ENTITY_RULES.md
+# JOBS_LEFT.md
+# TECHNICAL_DECISIONS.md

@@ -96,6 +96,24 @@ public class Application extends BaseEntity {
         update.setCurrentStage(currentStage);
         update.setReason(reason);
         update.setActor(actor);
+        update.setActorEmail(actor);
+        stageUpdates.add(update);
+    }
+
+    public void addStageUpdate(ApplicationStage previousStage, ApplicationStage currentStage, String reason, User actor) {
+        StageUpdate update = new StageUpdate();
+        update.setApplication(this);
+        update.setPreviousStage(previousStage);
+        update.setCurrentStage(currentStage);
+        update.setReason(reason);
+        if (actor != null) {
+            update.setActor(actor.getEmail());
+            update.setActorId(actor.getId());
+            update.setActorEmail(actor.getEmail());
+            update.setActorRole(actor.getRole());
+        } else {
+            update.setActor("system");
+        }
         stageUpdates.add(update);
     }
 

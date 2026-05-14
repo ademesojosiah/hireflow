@@ -288,6 +288,36 @@ HR managers cannot self-register. They must be onboarded by an admin who control
 
 ---
 
+## 8.5 Interview Scheduling and Scorecards
+
+### Problem
+
+Moving an application to `INTERVIEW_SCHEDULED` requires three things to actually happen:
+1. A real time slot agreed with the applicant.
+2. A meeting link the applicant can join.
+3. A standardised way for the interviewer to score the candidate after the conversation.
+
+### Current Plan
+
+- `InterviewSlot` entity owns the time slot (UTC `startTime`/`endTime` + IANA `timezone`), meeting link, provider, interviewer, status, and notes. One application can have many slots over time (rounds, reschedules); only one is in `SCHEDULED` status at a time.
+- Stage transition is **coupled** to slot creation. The generic `PATCH /api/v1/applications/{id}/stage` endpoint refuses `INTERVIEW_SCHEDULED` as a target. The only path to that stage is `POST /api/v1/applications/{id}/interview`, which atomically creates the slot, generates the meeting link, transitions the stage, and publishes the notification.
+- Reschedule (`PATCH .../interview`) updates time/notes in place and republishes the notification with the new slot. Cancel (`DELETE .../interview`) flips the slot to `CANCELLED` and moves the application back to `SCREENING` so HR can re-schedule or take a different action.
+- Meeting link generation is abstracted behind `MeetingLinkProvider`. The current implementation (`StubGoogleMeetLinkProvider`) returns a Meet-shaped placeholder URL. Real Google Calendar API integration plugs in by swapping the bean — no caller change.
+- Slot validation: `endTime > startTime`, duration between 15 minutes and 4 hours, `startTime` in the future, IANA timezone resolvable via `ZoneId.of(...)`. Double-booking is prevented by a service-layer check on existing `SCHEDULED` slots.
+- Scorecard templates are admin-owned per company. Each template has exactly five criteria; each criterion declares `category` (free-form: "Technical", "Behavioral", ...), `name`, `maxScore` (1-5), and `displayOrder`. Templates are soft-deleted (`active = false`) to preserve referential integrity with past scorecards.
+- Scorecards reference a template but **snapshot every criterion** (category + name + maxScore) at submission time, the same pattern as `questionSnapshot` on `ApplicationAnswer`. Future template edits never alter historical scorecards.
+- Submitting a scorecard automatically marks the `InterviewSlot` as `COMPLETED`. An interview can have multiple submitted scorecards, but only one per hiring manager per interview slot; same-manager resubmission is blocked by `(interview_slot_id, submitted_by_id)`.
+- Only HMANAGER users in the company can submit scorecards for company interviews. ADMIN and HMANAGER users can read submitted scorecards. Template **creation/update/delete** is ADMIN-only; read access is shared with HMANAGER.
+
+### Technical Direction
+
+- The Meet link is preserved across reschedules so external calendar invites stay valid. Future real-API integration should update the calendar event in place rather than minting a new link.
+- A future enhancement adds multiple rounds per application (round 1, round 2). The data model already supports it — `InterviewSlot` is many-per-application; only the active-slot uniqueness check is service-level. Adding a `roundNumber` column will surface it.
+- Email notification carries the meeting link, time slot, and timezone on the existing `APPLICATION_STAGE_UPDATED` topic — the notification service's `INTERVIEW_SCHEDULED` template renders them. No new Kafka topic.
+- Real Google Meet integration is out of scope for the first pass. The interface keeps the door open without forcing OAuth onto the rest of the system.
+
+---
+
 ## 9. HR-Driven Stage Transitions (No AI Auto-Advance)
 
 ### Problem

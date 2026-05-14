@@ -61,7 +61,7 @@ public class ApplicationSubmissionPersistence {
         application.setResumeProfile(resumeProfile);
         application.setCompanyId(job.getCompany().getId());
         application.setStage(ApplicationStage.SCREENING);
-        application.addStageUpdate(null, ApplicationStage.APPLIED, "Application submitted", applicant.getEmail());
+        application.addStageUpdate(null, ApplicationStage.APPLIED, "Application submitted", applicant);
         application.addStageUpdate(ApplicationStage.APPLIED, ApplicationStage.SCREENING, "Queued for AI screening", "system");
 
         for (JobQuestion question : job.getQuestions()) {

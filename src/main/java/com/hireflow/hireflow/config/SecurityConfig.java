@@ -66,8 +66,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/jobs/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/applications/stage/bulk").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/applications/*/stage").hasAnyRole("ADMIN", "HMANAGER")
+                        .requestMatchers("/api/v1/applications/*/interview/**").hasAnyRole("ADMIN", "HMANAGER")
+                        .requestMatchers("/api/v1/applications/*/interview").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/**").hasAnyRole("APPLICANT", "ADMIN", "HMANAGER")
 
+                        .requestMatchers("/api/v1/interviews/**").hasAnyRole("ADMIN", "HMANAGER")
+
+                        .requestMatchers("/api/v1/admin/scorecard-templates/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 
                         .anyRequest().authenticated()

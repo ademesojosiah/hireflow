@@ -52,7 +52,10 @@ HireFlow is a hiring management platform designed to help companies streamline t
 - **Per-stage AI screening** — application submission triggers four independent AI screening stages (resume analysis, project consistency, inconsistency review, match summary), each publishing its own Kafka event and updating the screening result row partially as results arrive.
 - **OpenAI integration with deterministic fallback** — each screening stage uses the OpenAI API when `OPENAI_ENABLED=true`; a keyword-based deterministic screener is used automatically when OpenAI is disabled or unavailable.
 - **Transparent application updates** — application stage transitions publish notification events to Kafka; the Notification service sends emails and broadcasts SSE updates to connected applicants in real time.
-- **Role-specific job questions** — admins and hiring managers can add technical questions with internal answer guides when creating or updating a job; guides are forwarded to AI screening but never exposed to applicants.
+- **Interview scheduling** - hiring teams schedule, reschedule, and cancel Google Meet-backed interview slots. Scheduling is the only path into `INTERVIEW_SCHEDULED`.
+- **Structured scorecards** - admins manage company scorecard templates; hiring managers submit one scorecard each for company interviews, while admins and hiring managers can read all company scorecards. A submitted scorecard is required before moving an application from `INTERVIEW_SCHEDULED` to `OFFER_SENT`.
+- **Stage audit actor capture** - every application status update records the actor string plus structured `actorId`, `actorEmail`, and `actorRole` fields for future general audit expansion.
+- **Role-specific job questions** — admins and hiring managers can add technical questions with internal answer guides when creating or updating a job; guides are stored for human review but are not forwarded to AI screening.
 - **Direct-to-Cloudinary signed uploads** — the backend generates a short-lived Cloudinary signature; the frontend uploads the file directly to Cloudinary and sends back only the resulting URL. The server never handles the file bytes.
 - **Centralised exception handling** — `@RestControllerAdvice` returns a consistent `ApiResponse` envelope for every error class.
 - **Comprehensive test coverage** — every service method and controller endpoint has both unit and full-stack integration tests.
@@ -285,6 +288,80 @@ erDiagram
         ApplicationStage currentStage "required"
         String reason "required"
         String actor "required"
+        String actorId "nullable for system actors"
+        String actorEmail "nullable for system actors"
+        Role actorRole "nullable for system actors"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    InterviewSlot {
+        String id PK "UUID"
+        String application_id FK "required, indexed"
+        String company_id "required, indexed"
+        Instant start_time "required"
+        Instant end_time "required"
+        String timezone "IANA timezone"
+        MeetingProvider meeting_provider "GOOGLE_MEET"
+        String meeting_link "required"
+        String interviewer_email "required"
+        InterviewStatus status "SCHEDULED|COMPLETED|CANCELLED|NO_SHOW"
+        String notes "TEXT"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    ScorecardTemplate {
+        String id PK "UUID"
+        String company_id "required, indexed"
+        String name "required"
+        String description "TEXT"
+        boolean active "soft delete flag"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    ScorecardCriterion {
+        String id PK "UUID"
+        String template_id FK "required, indexed"
+        String category "required"
+        String name "required"
+        String description "TEXT"
+        Integer max_score "1-5"
+        Integer display_order "required"
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    Scorecard {
+        String id PK "UUID"
+        String interview_slot_id FK "required, indexed"
+        String application_id FK "required, indexed"
+        String company_id "required, indexed"
+        String template_id FK "nullable historical reference"
+        String template_name_snapshot "required"
+        String interviewer_email "submitted by"
+        String submitted_by_id "required, unique with interview_slot_id"
+        String submitted_by_email "required"
+        Role submitted_by_role "HMANAGER"
+        String overall_notes "TEXT"
+        Integer total_score
+        Integer max_possible_score
+        ScorecardStatus status "DRAFT|SUBMITTED"
+        Instant submitted_at
+        Instant createdAt
+        Instant updatedAt
+    }
+
+    ScorecardScore {
+        String id PK "UUID"
+        String scorecard_id FK "required, indexed"
+        String criterion_id FK "nullable historical reference"
+        String criterion_category_snapshot "required"
+        String criterion_name_snapshot "required"
+        Integer max_score_snapshot "required"
+        Integer score "required"
+        String notes "TEXT"
         Instant createdAt
         Instant updatedAt
     }
@@ -318,6 +395,12 @@ erDiagram
     Application ||--o{ ApplicationAnswer : "captures answers (1:N, cascade ALL, orphanRemoval)"
     Application ||--o{ StageUpdate : "records (1:N, cascade ALL, orphanRemoval)"
     Application ||--o| AiScreeningResult : "has active result (1:0..1, cascade ALL, orphanRemoval)"
+    Application ||--o{ InterviewSlot : "has interview slots (1:N)"
+    InterviewSlot ||--o{ Scorecard : "has submitted scorecards (1:0..N, max one per HMANAGER)"
+    ScorecardTemplate ||--o{ ScorecardCriterion : "defines criteria (1:N, cascade ALL, orphanRemoval)"
+    ScorecardTemplate ||--o{ Scorecard : "used by scorecards (1:N)"
+    Scorecard ||--o{ ScorecardScore : "captures scores (1:N, cascade ALL, orphanRemoval)"
+    ScorecardCriterion ||--o{ ScorecardScore : "historical reference (1:N)"
     BaseEntity ||--|| Company : "extends"
     BaseEntity ||--|| User : "extends"
     BaseEntity ||--|| JobListing : "extends"
@@ -332,6 +415,11 @@ erDiagram
     BaseEntity ||--|| ApplicationAnswer : "extends"
     BaseEntity ||--|| AiScreeningResult : "extends"
     BaseEntity ||--|| StageUpdate : "extends"
+    BaseEntity ||--|| InterviewSlot : "extends"
+    BaseEntity ||--|| ScorecardTemplate : "extends"
+    BaseEntity ||--|| ScorecardCriterion : "extends"
+    BaseEntity ||--|| Scorecard : "extends"
+    BaseEntity ||--|| ScorecardScore : "extends"
     BaseEntity ||--|| HManagerInvitation : "extends"
 ```
 
@@ -570,7 +658,7 @@ Relationships:
 - `ApplicationAnswer many -> Application` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
 - `ApplicationAnswer many -> JobQuestion` (`@ManyToOne(fetch=LAZY)`)
 
-Service rule: applicants must answer every question attached to the target job, and submitted answers may not reference unknown question IDs. Answers are included in `ApplicationSubmittedEvent` for AI screening, with the question text and internal answer guide.
+Service rule: applicants must answer every question attached to the target job, and submitted answers may not reference unknown question IDs. Answers stay in the Application Service database for human review and are not included in `ApplicationSubmittedEvent`.
 
 ---
 
@@ -611,10 +699,15 @@ Rule: only `matchPercentage` controls automatic screening thresholds. Project co
 | `currentStage` | ENUM (STRING) | NOT NULL | stage after the transition |
 | `reason` | VARCHAR | NOT NULL | human-readable transition reason |
 | `actor` | VARCHAR | NOT NULL | user email or system actor |
+| `actor_id` | UUID/String | nullable | user ID for the HR/applicant actor; null for system actors |
+| `actor_email` | VARCHAR | nullable | email for the actor; stored separately for future audit queries |
+| `actor_role` | ENUM (STRING) | nullable | `APPLICANT`, `HMANAGER`, or `ADMIN`; null for system actors |
 | `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
 
 Relationships:
 - `StageUpdate many -> Application` (`@ManyToOne(fetch=LAZY)`, `@JsonIgnore`)
+
+Rule: `StageUpdate` is append-only audit data. Every applicant-facing status change records the action reason and the person who made it. HR actions store `actorId`, `actorEmail`, and `actorRole` so the future general audit log can link application status changes back to the acting user.
 
 ---
 
@@ -639,6 +732,76 @@ Relationships:
 | Application → ApplicationAnswer | 1 : N | `ApplicationAnswer.application` | ALL, orphanRemoval |
 | Application → StageUpdate | 1 : N | `StageUpdate.application` | ALL, orphanRemoval |
 | Application → AiScreeningResult | 1 : 0..1 | `AiScreeningResult.application` | ALL, orphanRemoval |
+| Application -> InterviewSlot | 1 : N | `InterviewSlot.application` | none |
+| InterviewSlot -> Scorecard | 1 : 0..N | `Scorecard.interviewSlot` | ALL, orphanRemoval |
+| ScorecardTemplate -> ScorecardCriterion | 1 : N | `ScorecardCriterion.template` | ALL, orphanRemoval |
+| ScorecardTemplate -> Scorecard | 1 : N | `Scorecard.template` | none |
+| Scorecard -> ScorecardScore | 1 : N | `ScorecardScore.scorecard` | ALL, orphanRemoval |
+
+---
+
+**`interview_slots`** - scheduled interview meetings
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `application_id` | UUID | FK -> `applications.id`, NOT NULL, indexed | application being interviewed |
+| `company_id` | UUID/String | NOT NULL, indexed | tenant boundary |
+| `start_time` | TIMESTAMP | NOT NULL, indexed | stored as UTC `Instant` |
+| `end_time` | TIMESTAMP | NOT NULL | must be after start time |
+| `timezone` | VARCHAR | NOT NULL | IANA timezone for display |
+| `meeting_provider` | ENUM (STRING) | NOT NULL | currently `GOOGLE_MEET` |
+| `meeting_link` | VARCHAR(500) | NOT NULL | generated by `MeetingLinkProvider` |
+| `interviewer_email` | VARCHAR | NOT NULL | assigned interviewer |
+| `status` | ENUM (STRING) | NOT NULL, indexed | `SCHEDULED`, `COMPLETED`, `CANCELLED`, `NO_SHOW` |
+| `notes` | TEXT | nullable | internal scheduling notes |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+Rules:
+- Scheduling an interview moves the application from `SCREENING` to `INTERVIEW_SCHEDULED` and writes a `StageUpdate`.
+- The generic stage endpoint cannot move an application into `INTERVIEW_SCHEDULED`; only the interview endpoint can create the slot and stage audit together.
+- Only one `SCHEDULED` slot is allowed per application at the service layer.
+- Rescheduling preserves the existing meeting link.
+- Cancelling a scheduled slot moves the application back to `SCREENING` and writes a `StageUpdate`.
+
+---
+
+**`scorecard_templates`** - company-owned scorecard rubrics
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `company_id` | UUID/String | NOT NULL, indexed | tenant boundary |
+| `name` | VARCHAR | NOT NULL | unique per company at service level |
+| `description` | TEXT | nullable | template description |
+| `is_active` | BOOLEAN | NOT NULL, indexed | soft-delete flag |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+`scorecard_criteria` are owned children of a template. A template must define exactly five criteria, each with `maxScore` from 1 to 5. Updating a template replaces the criterion list through explicit collection management and orphan removal. Deleting a template sets `is_active=false` instead of deleting the row.
+
+---
+
+**`scorecards`** - submitted interview evaluations
+| Column | Type | Constraint | Notes |
+|---|---|---|---|
+| `id` | UUID | PK | inherited |
+| `interview_slot_id` | UUID | FK -> `interview_slots.id`, NOT NULL, indexed | interview being evaluated |
+| `application_id` | UUID | FK -> `applications.id`, NOT NULL, indexed | application evaluated |
+| `company_id` | UUID/String | NOT NULL, indexed | tenant boundary |
+| `template_id` | UUID | FK -> `scorecard_templates.id`, nullable | historical reference |
+| `template_name_snapshot` | VARCHAR | NOT NULL | survives template rename/deactivation |
+| `interviewer_email` | VARCHAR | NOT NULL | HR user who submitted the scorecard |
+| `submitted_by_id` | UUID/String | NOT NULL, indexed, unique with `interview_slot_id` | hiring manager who submitted |
+| `submitted_by_email` | VARCHAR | NOT NULL | submitter email snapshot |
+| `submitted_by_role` | ENUM (STRING) | NOT NULL | currently `HMANAGER` for submissions |
+| `overall_notes` | TEXT | nullable | internal HR notes |
+| `total_score` | INT | NOT NULL | computed sum |
+| `max_possible_score` | INT | NOT NULL | computed maximum |
+| `status` | ENUM (STRING) | NOT NULL, indexed | `DRAFT`, `SUBMITTED` |
+| `submitted_at` | TIMESTAMP | nullable | set on submit |
+| `createdAt`, `updatedAt` | TIMESTAMP | NOT NULL | inherited |
+
+`scorecard_scores` snapshot each criterion category, name, and max score at submit time. Later template edits never alter historical scorecards. Multiple hiring managers in the same company may submit scorecards for the same interview, but each hiring manager can submit only once per slot. Admins can read scorecards but cannot submit them.
+
+Rule: moving an application from `INTERVIEW_SCHEDULED` to `OFFER_SENT` requires a submitted scorecard for that application.
 
 ---
 
@@ -665,7 +828,7 @@ Rules:
 
 #### Planned Entities (v3.1+)
 
-`InterviewSlot`, assessment/session entities, and future recommendation/audit expansion.
+Future recommendation expansion, general audit event tables, multi-round interview metadata, and calendar invite history.
 
 
 ---
@@ -827,6 +990,8 @@ Sends a registration email to the invitee. Only one pending invitation per email
 | GET | `/api/v1/applications?page=0&size=10` | List the authenticated applicant's applications. | APPLICANT |
 | GET | `/api/v1/applications/{id}` | Retrieve one of the authenticated applicant's applications. | APPLICANT |
 | GET | `/api/v1/applications/jobs/{jobId}?page=0&size=10` | List applications for a job owned by the hiring manager's company. | HMANAGER, ADMIN |
+| PATCH | `/api/v1/applications/{id}/stage` | Move an application through non-interview stages. `INTERVIEW_SCHEDULED` is blocked here. | HMANAGER, ADMIN |
+| PATCH | `/api/v1/applications/stage/bulk` | Apply a stage update to multiple applications, one notification per successful applicant. | HMANAGER, ADMIN |
 
 Apply request body:
 
@@ -841,7 +1006,44 @@ Apply request body:
 }
 ```
 
-When a job has questions, every question must have a non-blank answer. Unknown question IDs are rejected. Submitted answers are stored with a question snapshot and are forwarded to the AI screening event with the internal answer guide.
+When a job has questions, every question must have a non-blank answer. Unknown question IDs are rejected. Submitted answers are stored with a question snapshot for human review and are not forwarded to AI screening.
+
+Stage update rule: `REJECTED` requires a reason. `OFFER_SENT` from `INTERVIEW_SCHEDULED` requires a submitted scorecard. Every successful stage update writes a `stage_updates` row with actor details and publishes one applicant notification event.
+
+### Interviews
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/applications/{applicationId}/interview` | Create a scheduled interview slot, generate a Meet link, and move the application to `INTERVIEW_SCHEDULED`. | HMANAGER, ADMIN |
+| PATCH | `/api/v1/applications/{applicationId}/interview` | Reschedule the active slot while preserving the existing meeting link. | HMANAGER, ADMIN |
+| DELETE | `/api/v1/applications/{applicationId}/interview` | Cancel the active slot and move the application back to `SCREENING`. | HMANAGER, ADMIN |
+| GET | `/api/v1/applications/{applicationId}/interview` | Read the active slot, or latest slot when none is active. | HMANAGER, ADMIN |
+
+Schedule request:
+
+```json
+{
+  "startTime": "2026-05-20T14:00:00Z",
+  "endTime": "2026-05-20T15:00:00Z",
+  "timezone": "America/Los_Angeles",
+  "interviewerEmail": "maya@acme.com",
+  "notes": "Round 1 technical"
+}
+```
+
+### Scorecards
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| POST | `/api/v1/interviews/{interviewSlotId}/scorecard` | Submit the authenticated hiring manager's scorecard for an interview and mark the slot `COMPLETED`. One scorecard per hiring manager per slot. | HMANAGER |
+| GET | `/api/v1/interviews/{interviewSlotId}/scorecard` | Read all submitted scorecards for a company interview. | HMANAGER, ADMIN |
+| POST | `/api/v1/admin/scorecard-templates` | Create a company scorecard template. | ADMIN |
+| PUT | `/api/v1/admin/scorecard-templates/{id}` | Replace template metadata and criteria. | ADMIN |
+| GET | `/api/v1/admin/scorecard-templates` | List company templates. | HMANAGER, ADMIN |
+| GET | `/api/v1/admin/scorecard-templates/{id}` | Read one company template. | HMANAGER, ADMIN |
+| DELETE | `/api/v1/admin/scorecard-templates/{id}` | Soft-delete a template by setting `active=false`. | ADMIN |
+
+Any hiring manager in the same company can submit one scorecard for a company interview, and all company hiring managers/admins can read the submitted scorecards. Scorecard criteria are snapshotted into `scorecard_scores` so template edits do not rewrite history.
 
 ### Resume Profiles
 

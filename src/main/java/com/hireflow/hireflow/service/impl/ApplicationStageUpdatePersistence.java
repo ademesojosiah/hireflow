@@ -8,6 +8,7 @@ import com.hireflow.hireflow.enums.ApplicationStage;
 import com.hireflow.hireflow.event.events.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
+import com.hireflow.hireflow.service.ScorecardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ApplicationStageUpdatePersistence {
 
     private final ApplicationRepository applicationRepository;
+    private final ScorecardService scorecardService;
 
     @Transactional
     public EmailNotificationEvent updateStage(String applicationId, ApplicationStage targetStage, String reason, User actor) {
@@ -28,13 +30,14 @@ public class ApplicationStageUpdatePersistence {
         if (!ApplicationStageTransitions.isAllowed(previousStage, targetStage)) {
             throw new CustomException("Stage transition not allowed: " + previousStage + " to " + targetStage);
         }
+        validateTransitionContext(application, targetStage, reason, actor);
 
         String effectiveReason = (reason == null || reason.isBlank())
                 ? "Stage updated by " + actor.getEmail()
                 : reason;
 
         application.setStage(targetStage);
-        application.addStageUpdate(previousStage, targetStage, effectiveReason, actor.getEmail());
+        application.addStageUpdate(previousStage, targetStage, effectiveReason, actor);
         applicationRepository.save(application);
 
         return toNotificationEvent(application, previousStage, targetStage, effectiveReason, actor);
@@ -77,6 +80,23 @@ public class ApplicationStageUpdatePersistence {
                 actor.getEmail(),
                 candidateMessage(currentStage)
         );
+    }
+
+    private void validateTransitionContext(
+            Application application,
+            ApplicationStage targetStage,
+            String reason,
+            User actor
+    ) {
+        if (targetStage == ApplicationStage.REJECTED && (reason == null || reason.isBlank())) {
+            throw new CustomException("Rejection reason is required");
+        }
+        if (application.getStage() == ApplicationStage.INTERVIEW_SCHEDULED
+                && targetStage == ApplicationStage.OFFER_SENT
+                && !scorecardService.hasSubmittedScorecardForApplication(
+                application.getId(), actor.getCompany().getId())) {
+            throw new CustomException("A submitted scorecard is required before moving an application to OFFER_SENT");
+        }
     }
 
     private String candidateMessage(ApplicationStage currentStage) {

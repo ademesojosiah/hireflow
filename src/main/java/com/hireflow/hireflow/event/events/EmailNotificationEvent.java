@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -32,6 +34,14 @@ public class EmailNotificationEvent {
     private String actor;
     private String message;
     private String inviteLink;
+
+    // Interview-specific fields (populated only when currentStage == INTERVIEW_SCHEDULED).
+    // Kept optional/nullable so existing stage-change templates ignore them.
+    private String meetingLink;
+    private Instant interviewStartTime;
+    private Instant interviewEndTime;
+    private String interviewTimezone;
+    private String interviewerEmail;
 
     public EmailNotificationEvent(String type, String to, String otp, String firstName, String companyName) {
         this.type = type;
@@ -77,6 +87,41 @@ public class EmailNotificationEvent {
         event.setReason(reason);
         event.setActor(actor);
         event.setMessage(message);
+        return event;
+    }
+
+    /**
+     * Same wire type as a regular stage-change notification, but enriched with the meeting link
+     * and slot details. The notification service's INTERVIEW_SCHEDULED template renders the
+     * extra fields; the SSE channel just forwards the whole event.
+     */
+    public static EmailNotificationEvent interviewScheduled(
+            String to,
+            String applicationId,
+            String applicantId,
+            String jobListingId,
+            String jobTitle,
+            String companyId,
+            String companyName,
+            String previousStage,
+            String reason,
+            String actor,
+            String message,
+            String meetingLink,
+            Instant startTime,
+            Instant endTime,
+            String timezone,
+            String interviewerEmail
+    ) {
+        EmailNotificationEvent event = applicationStageUpdated(
+                to, applicationId, applicantId, jobListingId, jobTitle, companyId, companyName,
+                previousStage, "INTERVIEW_SCHEDULED", reason, actor, message
+        );
+        event.setMeetingLink(meetingLink);
+        event.setInterviewStartTime(startTime);
+        event.setInterviewEndTime(endTime);
+        event.setInterviewTimezone(timezone);
+        event.setInterviewerEmail(interviewerEmail);
         return event;
     }
 }

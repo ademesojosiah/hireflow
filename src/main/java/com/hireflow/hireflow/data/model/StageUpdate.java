@@ -2,6 +2,7 @@ package com.hireflow.hireflow.data.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.hireflow.hireflow.enums.ApplicationStage;
+import com.hireflow.hireflow.enums.Role;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -45,4 +46,14 @@ public class StageUpdate extends BaseEntity {
 
     @Column(nullable = false)
     private String actor;
+
+    @Column(name = "actor_id")
+    private String actorId;
+
+    @Column(name = "actor_email")
+    private String actorEmail;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "actor_role")
+    private Role actorRole;
 }

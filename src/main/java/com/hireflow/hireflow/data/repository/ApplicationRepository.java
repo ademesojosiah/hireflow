@@ -32,6 +32,10 @@ public interface ApplicationRepository extends JpaRepository<Application, String
     Optional<Application> findByIdAndCompanyId(String id, String companyId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select application from Application application where application.id = :id and application.companyId = :companyId")
+    Optional<Application> findByIdAndCompanyIdForUpdate(@Param("id") String id, @Param("companyId") String companyId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select application from Application application where application.id = :id")
     Optional<Application> findByIdForUpdate(@Param("id") String id);
 }

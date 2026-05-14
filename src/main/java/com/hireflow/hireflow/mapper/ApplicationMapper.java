@@ -126,6 +126,9 @@ public class ApplicationMapper {
                 update.getCurrentStage(),
                 update.getReason(),
                 update.getActor(),
+                update.getActorId(),
+                update.getActorEmail(),
+                update.getActorRole(),
                 update.getCreatedAt()
         );
     }
