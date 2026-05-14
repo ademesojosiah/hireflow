@@ -36,6 +36,7 @@ jobs:
           docker run -d \
             --name hireflow-main-service \
             --network hireflow-network \
+            --add-host=host.docker.internal:host-gateway \
             --env-file .env \
             -p 8081:8080 \
             --restart unless-stopped \
