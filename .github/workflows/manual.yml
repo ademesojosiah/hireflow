@@ -1,0 +1,41 @@
+name: Deploy Backend Service
+
+on:
+  push:
+    branches:
+      - prod
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Stop old container
+        run: docker rm -f hireflow-main-service || true
+
+      - name: Remove old image
+        run: docker rmi hireflow-main-service || true
+
+      - name: Build Docker image
+        run: docker build -t hireflow-main-service .
+
+      - name: Ensure Docker network exists
+        run: |
+          docker network inspect hireflow-network >/dev/null 2>&1 || \
+          docker network create hireflow-network
+
+      - name: Start backend container
+        run: |
+          docker run -d \
+            --name hireflow-main-service \
+            --network hireflow-network \
+            --env-file .env \
+            -p 8081:8080 \
+            --restart unless-stopped \
+            hireflow-main-service
+
+      - name: Cleanup dangling images
+        run: docker image prune -f
