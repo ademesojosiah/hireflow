@@ -129,7 +129,7 @@ class ScorecardServiceImplTest {
                 "slot-1", company.getId(), manager.getId())).thenReturn(false);
         when(scorecardTemplateService.findTemplateEntityForCompany("template-1", company.getId()))
                 .thenReturn(template);
-        when(scorecardRepository.save(any(Scorecard.class))).thenAnswer(invocation -> {
+        when(scorecardRepository.saveAndFlush(any(Scorecard.class))).thenAnswer(invocation -> {
             Scorecard saved = invocation.getArgument(0);
             saved.setId("scorecard-1");
             return saved;

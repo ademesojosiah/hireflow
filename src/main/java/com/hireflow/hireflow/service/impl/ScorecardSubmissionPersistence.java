@@ -17,6 +17,7 @@ import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.service.ScorecardTemplateService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,7 +59,9 @@ public class ScorecardSubmissionPersistence {
         validateScoresCoverEveryCriterion(template, request.getScores(), criteriaById);
 
         Scorecard scorecard = new Scorecard();
-        slot.addScorecard(scorecard);
+        // Set only the child-side back-reference. Mutating slot.scorecards would queue an add
+        // on the uninitialized lazy collection, triggering HHH90030005 on session detach.
+        scorecard.setInterviewSlot(slot);
         scorecard.setApplication(slot.getApplication());
         scorecard.setCompanyId(companyId);
         scorecard.setTemplate(template);
@@ -97,7 +100,14 @@ public class ScorecardSubmissionPersistence {
         slot.setStatus(InterviewStatus.COMPLETED);
         interviewSlotRepository.save(slot);
 
-        return scorecardRepository.save(scorecard);
+        // saveAndFlush() forces the UK check inside this transaction so a concurrent
+        // submit (or a double-click) that slipped past the existsBy check is reported
+        // as a clean 409 DuplicateResourceException, not a 500 Internal Server Error.
+        try {
+            return scorecardRepository.saveAndFlush(scorecard);
+        } catch (DataIntegrityViolationException ex) {
+            throw new DuplicateResourceException("You have already submitted a scorecard for this interview");
+        }
     }
 
     @Transactional(readOnly = true)
