@@ -9,7 +9,6 @@ import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.restclient.MeetingLinkProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -32,7 +31,6 @@ import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "hireflow.meeting.provider", havingValue = "google-calendar")
 public class GoogleCalendarMeetingLinkProvider implements MeetingLinkProvider {
 
     private static final String CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
@@ -77,11 +75,11 @@ public class GoogleCalendarMeetingLinkProvider implements MeetingLinkProvider {
 
         String accessToken = fetchAccessToken(resolveDelegatedUser(organizerEmail));
         JsonNode event = insertCalendarEvent(accessToken, applicationId, startTime, endTime, timezone, organizerEmail);
-        String meetingLink = extractMeetingLink(event);
-        if (meetingLink == null || meetingLink.isBlank()) {
+        JsonNode hangoutLink = event.get("hangoutLink");
+        if (hangoutLink == null || hangoutLink.asText().isBlank()) {
             throw new CustomException("Google Calendar created the event but did not return a Google Meet link");
         }
-        return meetingLink;
+        return hangoutLink.asText();
     }
 
     private String fetchAccessToken(String subject) {
@@ -181,23 +179,6 @@ public class GoogleCalendarMeetingLinkProvider implements MeetingLinkProvider {
         byte[] decoded = Base64.getDecoder().decode(normalized);
         return (RSAPrivateKey) KeyFactory.getInstance("RSA")
                 .generatePrivate(new PKCS8EncodedKeySpec(decoded));
-    }
-
-    private String extractMeetingLink(JsonNode event) {
-        JsonNode hangoutLink = event.get("hangoutLink");
-        if (hangoutLink != null && !hangoutLink.asText().isBlank()) {
-            return hangoutLink.asText();
-        }
-        JsonNode entryPoints = event.at("/conferenceData/entryPoints");
-        if (entryPoints.isArray()) {
-            for (JsonNode entryPoint : entryPoints) {
-                if ("video".equals(entryPoint.path("entryPointType").asText())
-                        && !entryPoint.path("uri").asText().isBlank()) {
-                    return entryPoint.path("uri").asText();
-                }
-            }
-        }
-        return null;
     }
 
     private String resolveDelegatedUser(String organizerEmail) {

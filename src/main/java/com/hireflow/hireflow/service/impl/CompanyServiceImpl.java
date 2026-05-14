@@ -15,6 +15,8 @@ import com.hireflow.hireflow.service.CompanyService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -80,6 +82,7 @@ public class CompanyServiceImpl implements CompanyService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "companies", key = "#id")
     public CompanyResponse update(String id, CompanyRequest request, User user) {
         try {
             if (user == null) {
@@ -108,6 +111,7 @@ public class CompanyServiceImpl implements CompanyService {
     }
 
     @Override
+    @Cacheable(value = "companies", key = "#id")
     public CompanyResponse findById(String id) {
         Company company = companyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Company not found"));
@@ -127,6 +131,7 @@ public class CompanyServiceImpl implements CompanyService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "companies", key = "#id")
     public void delete(String id, User user) {
         try {
             if (user == null) {

@@ -33,7 +33,7 @@ public class User extends BaseEntity {
     private Role role;
 
     @JsonIgnore
-    @OneToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = true)
     private Company company;
 

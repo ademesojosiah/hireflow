@@ -21,6 +21,9 @@ import com.hireflow.hireflow.service.SkillService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -43,6 +46,7 @@ public class JobListingServiceImpl implements JobListingService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "jobListingsOpen", allEntries = true)
     public JobListingResponse create(JobListingRequest request, User user) {
         try {
             Company company = requireCompanyManager(user);
@@ -62,6 +66,10 @@ public class JobListingServiceImpl implements JobListingService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "jobListings", key = "#id"),
+            @CacheEvict(value = "jobListingsOpen", allEntries = true)
+    })
     public JobListingResponse update(String id, JobListingRequest request, User user) {
         try {
             JobListing job = jobListingRepository.findById(id)
@@ -82,6 +90,7 @@ public class JobListingServiceImpl implements JobListingService {
     }
 
     @Override
+    @Cacheable(value = "jobListings", key = "#id")
     public JobListingResponse findById(String id) {
         JobListing job = jobListingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Job listing not found"));
@@ -112,6 +121,7 @@ public class JobListingServiceImpl implements JobListingService {
         return page.map(jobListingMapper::toResponse);
     }
     @Override
+    @Cacheable(value = "jobListingsOpen")
     public Page<JobListingFilterResponse> findAllOpen(String title, JobType type, Pageable pageable) {
         return jobListingRepository.findAllOpen(normalizeFilter(title), type, pageable)
                 .map(jobListingMapper::toJobListingFilterResponse);
@@ -119,6 +129,10 @@ public class JobListingServiceImpl implements JobListingService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "jobListings", key = "#id"),
+            @CacheEvict(value = "jobListingsOpen", allEntries = true)
+    })
     public void delete(String id, User user) {
         try {
             JobListing job = jobListingRepository.findById(id)
