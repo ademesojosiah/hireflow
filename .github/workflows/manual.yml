@@ -13,8 +13,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create production env file
+      - name: Create env.properties
         run: |
+          mkdir -p src/main/resources
           echo "${{ secrets.PROD_ENV }}" > src/main/resources/env.properties
 
       - name: Stop old container
@@ -36,7 +37,6 @@ jobs:
           docker run -d \
             --name hireflow-main-service \
             --network hireflow-network \
-            --env-file .env \
             -p 8081:8080 \
             --restart unless-stopped \
             hireflow-main-service
