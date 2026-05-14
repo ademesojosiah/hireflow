@@ -116,7 +116,11 @@ public class SecurityConfig {
         configuration.setAllowCredentials(true);
 
         configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173"
+                "http://localhost:5173",
+                "http://stbrigitta.com",
+                "https://stbrigitta.com",
+                "https://www.stbrigitta.com",
+                "http://www.stbrigitta.com"
         ));
 
         configuration.setAllowedMethods(List.of(
