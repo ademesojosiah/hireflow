@@ -13,6 +13,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create production env file
+        run: |
+          echo "${{ secrets.PROD_ENV }}" > .env
+
       - name: Stop old container
         run: docker rm -f hireflow-main-service || true
 
