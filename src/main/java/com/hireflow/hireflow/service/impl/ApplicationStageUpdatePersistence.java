@@ -26,7 +26,7 @@ public class ApplicationStageUpdatePersistence {
 
         ApplicationStage previousStage = application.getStage();
         if (!ApplicationStageTransitions.isAllowed(previousStage, targetStage)) {
-            throw new CustomException("Stage transition not allowed: " + previousStage + " → " + targetStage);
+            throw new CustomException("Stage transition not allowed: " + previousStage + " to " + targetStage);
         }
 
         String effectiveReason = (reason == null || reason.isBlank())
@@ -54,13 +54,13 @@ public class ApplicationStageUpdatePersistence {
             throw new AccessDeniedException("Application is missing an applicant");
         }
         // The notification service routes the email by `to` and the SSE push by `applicantId`.
-        // If either is missing the applicant cannot be reached — fail loudly rather than publish
+        // If either is missing the applicant cannot be reached - fail loudly rather than publish
         // a half-formed event that will silently fail downstream.
         if (applicant.getEmail() == null || applicant.getEmail().isBlank()) {
-            throw new CustomException("Applicant " + applicant.getId() + " has no email — cannot publish stage-change notification");
+            throw new CustomException("Applicant " + applicant.getId() + " has no email - cannot publish stage-change notification");
         }
         if (applicant.getId() == null || applicant.getId().isBlank()) {
-            throw new CustomException("Applicant is missing an id — cannot route stage-change SSE event");
+            throw new CustomException("Applicant is missing an id - cannot route stage-change SSE event");
         }
 
         return EmailNotificationEvent.applicationStageUpdated(
@@ -85,7 +85,7 @@ public class ApplicationStageUpdatePersistence {
             case REJECTED -> "Your application status has been updated by the hiring team.";
             case SCREENING -> "Your application is in screening.";
             case OFFER_SENT -> "You have received an offer update for your application.";
-            case HIRED -> "Welcome aboard — your application has moved to hired.";
+            case HIRED -> "Welcome aboard - your application has moved to hired.";
             case APPLIED -> "Your application has been submitted.";
         };
     }

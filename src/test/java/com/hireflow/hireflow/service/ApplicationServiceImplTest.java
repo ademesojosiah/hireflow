@@ -307,7 +307,7 @@ class ApplicationServiceImplTest {
     void processScreeningCompleted_belowRejectStaysInScreening() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ScreeningCompletedEvent event = screeningCompleted(35);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         applicationService.processScreeningCompleted(event);
@@ -324,7 +324,7 @@ class ApplicationServiceImplTest {
     void processScreeningCompleted_abovePassStaysInScreening() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ScreeningCompletedEvent event = screeningCompleted(85);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         applicationService.processScreeningCompleted(event);
@@ -340,7 +340,7 @@ class ApplicationServiceImplTest {
     void processScreeningCompleted_middleScoreManualReview() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         ScreeningCompletedEvent event = screeningCompleted(55);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         applicationService.processScreeningCompleted(event);
@@ -357,7 +357,7 @@ class ApplicationServiceImplTest {
         ScreeningCompletedEvent event = new ScreeningCompletedEvent(
                 application.getId(), null, null, null, "Provider returned no score"
         );
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         applicationService.processScreeningCompleted(event);
@@ -370,7 +370,7 @@ class ApplicationServiceImplTest {
     @DisplayName("Should apply resume analysis without moving the stage and without notifying")
     void processResumeAnalysisCompleted_partialMerge() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         ResumeAnalysisCompletedEvent event = new ResumeAnalysisCompletedEvent(
@@ -392,7 +392,7 @@ class ApplicationServiceImplTest {
         AiScreeningResult existing = new AiScreeningResult();
         existing.setApplication(application);
         existing.setResumeAnalysisScore(80);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.of(existing));
 
         ProjectConsistencyCompletedEvent event = new ProjectConsistencyCompletedEvent(
@@ -410,7 +410,7 @@ class ApplicationServiceImplTest {
     @DisplayName("Should apply inconsistency review without changing stage")
     void processInconsistencyReviewCompleted_partialMerge() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
-        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(applicationRepository.findByIdForUpdate(application.getId())).thenReturn(Optional.of(application));
         when(aiScreeningResultRepository.findByApplication_Id(application.getId())).thenReturn(Optional.empty());
 
         InconsistencyReviewCompletedEvent event = new InconsistencyReviewCompletedEvent(
@@ -452,7 +452,7 @@ class ApplicationServiceImplTest {
         assertThat(application.getStageUpdates().getFirst().getCurrentStage()).isEqualTo(ApplicationStage.INTERVIEW_SCHEDULED);
         // The notification must carry the applicant's email (for the SMTP send) AND the applicant id
         // (which the notification service uses to route the SSE event to the right subscriber).
-        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
+        verify(notificationEventProducer).publishApplicationStageUpdate(argThat(notification ->
                 notification != null
                         && applicant.getEmail().equals(notification.getTo())
                         && applicant.getId().equals(notification.getApplicantId())
@@ -511,13 +511,64 @@ class ApplicationServiceImplTest {
         assertThat(response.getFailures()).extracting("applicationId")
                 .containsExactlyInAnyOrder("application-2", "application-3");
         // Exactly one notification fires (the only successful update), addressed to that applicant.
-        verify(notificationEventProducer).publishApplicationStageUpdateAsync(argThat(notification ->
+        verify(notificationEventProducer).publishApplicationStageUpdate(argThat(notification ->
                 notification != null
                         && "application-1".equals(notification.getApplicationId())
                         && applicant.getEmail().equals(notification.getTo())
                         && applicant.getId().equals(notification.getApplicantId())
                         && "REJECTED".equals(notification.getCurrentStage())
         ));
+    }
+
+    @Test
+    @DisplayName("Should publish bulk-update notifications strictly in the request order, one applicant after the other")
+    void bulkUpdateApplicationStage_preservesPerApplicantOrder() {
+        // Three different applicants so we can prove each notification carries its own routing fields.
+        User ada = applicant;
+        User bob = new User("Bob", "Builder", "bob@example.com", "password", Role.APPLICANT, true);
+        bob.setId("applicant-2");
+        User cara = new User("Cara", "Carter", "cara@example.com", "password", Role.APPLICANT, true);
+        cara.setId("applicant-3");
+
+        Application app1 = sampleApplication(ApplicationStage.SCREENING);
+        app1.setId("application-1");
+        app1.setApplicant(ada);
+
+        Application app2 = sampleApplication(ApplicationStage.SCREENING);
+        app2.setId("application-2");
+        app2.setApplicant(bob);
+
+        Application app3 = sampleApplication(ApplicationStage.SCREENING);
+        app3.setId("application-3");
+        app3.setApplicant(cara);
+
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId("application-1", company.getId())).thenReturn(Optional.of(app1));
+        when(applicationRepository.findByIdAndCompanyId("application-2", company.getId())).thenReturn(Optional.of(app2));
+        when(applicationRepository.findByIdAndCompanyId("application-3", company.getId())).thenReturn(Optional.of(app3));
+
+        BulkStageUpdateRequest request = new BulkStageUpdateRequest(
+                List.of("application-1", "application-2", "application-3"),
+                ApplicationStage.INTERVIEW_SCHEDULED,
+                "Batch advance"
+        );
+
+        BulkStageUpdateResponse response = applicationService.bulkUpdateApplicationStage(request, manager);
+
+        assertThat(response.getSucceeded()).isEqualTo(3);
+        assertThat(response.getUpdatedApplicationIds()).containsExactly("application-1", "application-2", "application-3");
+
+        // Inorder verification: applicant 1 first, then 2, then 3 — each addressed to the right person.
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(notificationEventProducer);
+        inOrder.verify(notificationEventProducer).publishApplicationStageUpdate(argThat(n ->
+                n != null && "application-1".equals(n.getApplicationId())
+                        && ada.getEmail().equals(n.getTo()) && ada.getId().equals(n.getApplicantId())));
+        inOrder.verify(notificationEventProducer).publishApplicationStageUpdate(argThat(n ->
+                n != null && "application-2".equals(n.getApplicationId())
+                        && bob.getEmail().equals(n.getTo()) && bob.getId().equals(n.getApplicantId())));
+        inOrder.verify(notificationEventProducer).publishApplicationStageUpdate(argThat(n ->
+                n != null && "application-3".equals(n.getApplicationId())
+                        && cara.getEmail().equals(n.getTo()) && cara.getId().equals(n.getApplicantId())));
     }
 
     @Test

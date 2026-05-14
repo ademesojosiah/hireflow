@@ -116,7 +116,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             User manager = requireCompanyManager(user);
             EmailNotificationEvent notification = applicationStageUpdatePersistence.updateStage(
                     applicationId, request.getTargetStage(), request.getReason(), manager);
-            notificationEventProducer.publishApplicationStageUpdateAsync(notification);
+            notificationEventProducer.publishApplicationStageUpdate(notification);
             Application application = applicationRepository.findByIdAndCompanyId(applicationId, manager.getCompany().getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
             return applicationMapper.toResponse(application);
@@ -135,13 +135,12 @@ public class ApplicationServiceImpl implements ApplicationService {
 
         List<String> updated = new ArrayList<>();
         List<BulkStageUpdateFailure> failures = new ArrayList<>();
-        List<EmailNotificationEvent> pendingNotifications = new ArrayList<>();
 
         for (String applicationId : request.getApplicationIds()) {
             try {
                 EmailNotificationEvent notification = applicationStageUpdatePersistence.updateStage(
                         applicationId, request.getTargetStage(), request.getReason(), manager);
-                pendingNotifications.add(notification);
+                notificationEventProducer.publishApplicationStageUpdate(notification);
                 updated.add(applicationId);
             } catch (AccessDeniedException | ResourceNotFoundException | CustomException ex) {
                 log.warn("Bulk stage update skipped {}: {}", applicationId, ex.getMessage());
@@ -150,10 +149,6 @@ public class ApplicationServiceImpl implements ApplicationService {
                 log.error("Bulk stage update failed for {}: {}", applicationId, ex.getMessage());
                 failures.add(new BulkStageUpdateFailure(applicationId, "Internal Server Error"));
             }
-        }
-
-        for (EmailNotificationEvent notification : pendingNotifications) {
-            notificationEventProducer.publishApplicationStageUpdateAsync(notification);
         }
 
         return new BulkStageUpdateResponse(
@@ -211,7 +206,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private void publishSubmissionNotifications(ApplicationResponse response) {
-        notificationEventProducer.publishApplicationStageUpdateAsync(EmailNotificationEvent.applicationStageUpdated(
+        notificationEventProducer.publishApplicationStageUpdate(EmailNotificationEvent.applicationStageUpdated(
                 response.getApplicantEmail(),
                 response.getId(),
                 response.getApplicantId(),
@@ -226,7 +221,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 "Your application has been submitted."
         ));
 
-        notificationEventProducer.publishApplicationStageUpdateAsync(EmailNotificationEvent.applicationStageUpdated(
+        notificationEventProducer.publishApplicationStageUpdate(EmailNotificationEvent.applicationStageUpdated(
                 response.getApplicantEmail(),
                 response.getId(),
                 response.getApplicantId(),

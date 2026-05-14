@@ -67,11 +67,7 @@ public class ApplicationScreeningPersistence {
         applicationRepository.save(application);
     }
 
-    /**
-     * Persists the final AI screening output. The application stage is NOT changed here —
-     * stage transitions are an admin/HR responsibility (single or bulk endpoints).
-     * The threshold-derived recommendation is stored so HR can filter applicants by it.
-     */
+
     @Transactional
     public void finalizeScreening(ScreeningCompletedEvent event) {
         Application application = loadApplication(event.getApplicationId());
@@ -89,7 +85,7 @@ public class ApplicationScreeningPersistence {
     }
 
     private Application loadApplication(String applicationId) {
-        return applicationRepository.findById(applicationId)
+        return applicationRepository.findByIdForUpdate(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
     }
 
