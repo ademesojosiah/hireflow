@@ -13,7 +13,6 @@ import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.service.AdminMetricsService;
 import com.hireflow.hireflow.service.UserService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,10 +33,6 @@ public class AdminMetricsServiceImpl implements AdminMetricsService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "adminMetricsVolume",
-            key = "#caller.id + ':' + (#jobListingId == null ? 'ALL' : #jobListingId)"
-    )
     public ApplicationVolumeResponse getApplicationVolume(User caller, String jobListingId) {
         User admin = requireAdminCaller(caller);
         String companyId = requireCompanyId(admin);
@@ -60,10 +55,6 @@ public class AdminMetricsServiceImpl implements AdminMetricsService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(
-            value = "adminMetricsTth",
-            key = "#caller.id + ':' + (#jobListingId == null ? 'ALL' : #jobListingId)"
-    )
     public TimeToHireResponse getTimeToHire(User caller, String jobListingId) {
         User admin = requireAdminCaller(caller);
         String companyId = requireCompanyId(admin);
