@@ -87,8 +87,24 @@ public class InterviewServiceImpl implements InterviewService {
 
     @Override
     public InterviewSlotResponse getInterviewByApplication(String applicationId, User user) {
-        User actor = requireCompanyManager(user);
-        InterviewSlot slot = interviewSchedulingPersistence.findActiveOrLatest(applicationId, actor);
+        if (user == null) {
+            throw new AccessDeniedException("Authentication required");
+        }
+        User refreshed = userService.findUserById(user.getId());
+        if (refreshed == null) {
+            throw new AccessDeniedException("Authentication required");
+        }
+        InterviewSlot slot;
+        if (refreshed.getRole() == Role.APPLICANT) {
+            slot = interviewSchedulingPersistence.findActiveOrLatestForApplicant(applicationId, refreshed);
+        } else if (refreshed.getRole() == Role.ADMIN || refreshed.getRole() == Role.HMANAGER) {
+            if (refreshed.getCompany() == null) {
+                throw new AccessDeniedException("You must belong to a company to read interviews");
+            }
+            slot = interviewSchedulingPersistence.findActiveOrLatest(applicationId, refreshed);
+        } else {
+            throw new AccessDeniedException("Not authorized to view this interview");
+        }
         return interviewMapper.toResponse(slot);
     }
 

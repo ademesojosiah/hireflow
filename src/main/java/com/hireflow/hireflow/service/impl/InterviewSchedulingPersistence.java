@@ -145,6 +145,17 @@ public class InterviewSchedulingPersistence {
                 .orElseThrow(() -> new ResourceNotFoundException("No interview found for this application"));
     }
 
+    @Transactional(readOnly = true)
+    public InterviewSlot findActiveOrLatestForApplicant(String applicationId, User applicant) {
+        Application application = applicationRepository.findByIdAndApplicant_Id(applicationId, applicant.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+        return interviewSlotRepository
+                .findByApplication_IdAndStatus(applicationId, InterviewStatus.SCHEDULED)
+                .or(() -> interviewSlotRepository.findTopByApplication_IdAndCompanyIdOrderByCreatedAtDesc(
+                        applicationId, application.getCompanyId()))
+                .orElseThrow(() -> new ResourceNotFoundException("No interview found for this application"));
+    }
+
     private Application loadApplicationForCompany(String applicationId, User actor) {
         return applicationRepository.findByIdAndCompanyIdForUpdate(applicationId, actor.getCompany().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));

@@ -66,6 +66,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/jobs/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/applications/stage/bulk").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/applications/*/stage").hasAnyRole("ADMIN", "HMANAGER")
+                        // Applicants can read their own interview details; only ADMIN/HMANAGER can mutate.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interview").hasAnyRole("APPLICANT", "ADMIN", "HMANAGER")
                         .requestMatchers("/api/v1/applications/*/interview/**").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers("/api/v1/applications/*/interview").hasAnyRole("ADMIN", "HMANAGER")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/**").hasAnyRole("APPLICANT", "ADMIN", "HMANAGER")
