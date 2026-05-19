@@ -1,7 +1,7 @@
-package com.hireflow.hireflow.controller;
+package com.hireflow.hireflow.upload.controller;
 
 import com.hireflow.hireflow.dto.response.ApiResponse;
-import com.hireflow.hireflow.service.upload.CloudUploadService;
+import com.hireflow.hireflow.upload.service.CloudUploadService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -1,4 +1,4 @@
-package com.hireflow.hireflow.dto.response;
+package com.hireflow.hireflow.upload.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

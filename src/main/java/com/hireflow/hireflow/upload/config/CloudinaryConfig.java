@@ -1,4 +1,4 @@
-package com.hireflow.hireflow.config;
+package com.hireflow.hireflow.upload.config;
 
 import com.cloudinary.Cloudinary;
 import org.springframework.beans.factory.annotation.Value;

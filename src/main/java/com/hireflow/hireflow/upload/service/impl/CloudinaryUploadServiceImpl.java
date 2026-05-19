@@ -1,9 +1,9 @@
-package com.hireflow.hireflow.service.upload.impl;
+package com.hireflow.hireflow.upload.service.impl;
 
 import com.cloudinary.Cloudinary;
-import com.hireflow.hireflow.dto.response.CloudinarySignatureResponse;
 import com.hireflow.hireflow.exception.CustomException;
-import com.hireflow.hireflow.service.upload.CloudUploadService;
+import com.hireflow.hireflow.upload.dto.response.CloudinarySignatureResponse;
+import com.hireflow.hireflow.upload.service.CloudUploadService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
