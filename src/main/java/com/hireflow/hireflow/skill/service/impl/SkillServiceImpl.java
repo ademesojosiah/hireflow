@@ -1,16 +1,16 @@
-package com.hireflow.hireflow.service.impl;
+package com.hireflow.hireflow.skill.service.impl;
 
-import com.hireflow.hireflow.data.dao.SkillSearchDao;
-import com.hireflow.hireflow.data.model.Skill;
-import com.hireflow.hireflow.data.repository.SkillRepository;
-import com.hireflow.hireflow.dto.request.SkillRequest;
-import com.hireflow.hireflow.dto.response.SkillResponse;
+import com.hireflow.hireflow.config.RedisCacheConfig;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
-import com.hireflow.hireflow.mapper.SkillMapper;
-import com.hireflow.hireflow.service.SkillService;
-import com.hireflow.hireflow.config.RedisCacheConfig;
+import com.hireflow.hireflow.skill.dao.SkillSearchDao;
+import com.hireflow.hireflow.skill.dto.request.SkillRequest;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.entity.Skill;
+import com.hireflow.hireflow.skill.mapper.SkillMapper;
+import com.hireflow.hireflow.skill.repository.SkillRepository;
+import com.hireflow.hireflow.skill.service.SkillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;

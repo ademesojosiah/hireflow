@@ -1,15 +1,15 @@
 package com.hireflow.hireflow.service;
 
-import com.hireflow.hireflow.data.dao.SkillSearchDao;
-import com.hireflow.hireflow.data.model.Skill;
-import com.hireflow.hireflow.data.repository.SkillRepository;
-import com.hireflow.hireflow.dto.request.SkillRequest;
-import com.hireflow.hireflow.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.dao.SkillSearchDao;
+import com.hireflow.hireflow.skill.entity.Skill;
+import com.hireflow.hireflow.skill.repository.SkillRepository;
+import com.hireflow.hireflow.skill.dto.request.SkillRequest;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
 import com.hireflow.hireflow.exception.CustomException;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
-import com.hireflow.hireflow.mapper.SkillMapper;
-import com.hireflow.hireflow.service.impl.SkillServiceImpl;
+import com.hireflow.hireflow.skill.mapper.SkillMapper;
+import com.hireflow.hireflow.skill.service.impl.SkillServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

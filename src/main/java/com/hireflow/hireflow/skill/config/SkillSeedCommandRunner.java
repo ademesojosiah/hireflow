@@ -1,6 +1,6 @@
-package com.hireflow.hireflow.config;
+package com.hireflow.hireflow.skill.config;
 
-import com.hireflow.hireflow.service.SkillService;
+import com.hireflow.hireflow.skill.service.SkillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;

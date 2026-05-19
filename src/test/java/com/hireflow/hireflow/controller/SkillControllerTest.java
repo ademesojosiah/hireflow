@@ -1,11 +1,11 @@
 package com.hireflow.hireflow.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hireflow.hireflow.data.model.Skill;
+import com.hireflow.hireflow.skill.entity.Skill;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.data.repository.SkillRepository;
+import com.hireflow.hireflow.skill.repository.SkillRepository;
 import com.hireflow.hireflow.data.repository.UserRepository;
-import com.hireflow.hireflow.dto.request.SkillRequest;
+import com.hireflow.hireflow.skill.dto.request.SkillRequest;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.security.UserPrincipal;
 import org.junit.jupiter.api.AfterEach;

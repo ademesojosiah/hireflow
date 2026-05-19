@@ -1,16 +1,16 @@
 package com.hireflow.hireflow.service;
 
-import com.hireflow.hireflow.data.model.Company;
+import com.hireflow.hireflow.company.entity.Company;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.data.repository.CompanyRepository;
-import com.hireflow.hireflow.dto.request.CompanyRequest;
-import com.hireflow.hireflow.dto.response.CompanyResponse;
+import com.hireflow.hireflow.company.repository.CompanyRepository;
+import com.hireflow.hireflow.company.dto.request.CompanyRequest;
+import com.hireflow.hireflow.company.dto.response.CompanyResponse;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.event.events.EmailNotificationEvent;
 import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
-import com.hireflow.hireflow.mapper.CompanyMapper;
-import com.hireflow.hireflow.service.impl.CompanyServiceImpl;
+import com.hireflow.hireflow.company.mapper.CompanyMapper;
+import com.hireflow.hireflow.company.service.impl.CompanyServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
-package com.hireflow.hireflow.data.repository;
+package com.hireflow.hireflow.skill.repository;
 
-import com.hireflow.hireflow.data.model.Skill;
+import com.hireflow.hireflow.skill.entity.Skill;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

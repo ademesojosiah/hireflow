@@ -1,4 +1,4 @@
-package com.hireflow.hireflow.dto.request;
+package com.hireflow.hireflow.skill.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

@@ -1,9 +1,9 @@
-package com.hireflow.hireflow.controller;
+package com.hireflow.hireflow.skill.controller;
 
-import com.hireflow.hireflow.dto.request.SkillRequest;
 import com.hireflow.hireflow.dto.response.ApiResponse;
-import com.hireflow.hireflow.dto.response.SkillResponse;
-import com.hireflow.hireflow.service.SkillService;
+import com.hireflow.hireflow.skill.dto.request.SkillRequest;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.service.SkillService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

@@ -1,6 +1,6 @@
-package com.hireflow.hireflow.data.dao;
+package com.hireflow.hireflow.skill.dao;
 
-import com.hireflow.hireflow.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
 
 import java.util.List;
 

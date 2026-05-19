@@ -1,5 +1,6 @@
-package com.hireflow.hireflow.data.model;
+package com.hireflow.hireflow.skill.entity;
 
+import com.hireflow.hireflow.data.model.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Index;

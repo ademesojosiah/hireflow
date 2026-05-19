@@ -1,8 +1,8 @@
-package com.hireflow.hireflow.mapper;
+package com.hireflow.hireflow.skill.mapper;
 
-import com.hireflow.hireflow.data.model.Skill;
-import com.hireflow.hireflow.dto.request.SkillRequest;
-import com.hireflow.hireflow.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.dto.request.SkillRequest;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.entity.Skill;
 import org.springframework.stereotype.Component;
 
 @Component

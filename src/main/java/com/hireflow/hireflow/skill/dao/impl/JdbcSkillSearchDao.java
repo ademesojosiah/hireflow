@@ -1,7 +1,7 @@
-package com.hireflow.hireflow.data.dao.impl;
+package com.hireflow.hireflow.skill.dao.impl;
 
-import com.hireflow.hireflow.data.dao.SkillSearchDao;
-import com.hireflow.hireflow.dto.response.SkillResponse;
+import com.hireflow.hireflow.skill.dao.SkillSearchDao;
+import com.hireflow.hireflow.skill.dto.response.SkillResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
