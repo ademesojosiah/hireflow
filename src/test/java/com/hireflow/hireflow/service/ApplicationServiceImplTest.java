@@ -2,7 +2,7 @@ package com.hireflow.hireflow.service;
 
 import com.hireflow.hireflow.data.model.AiScreeningResult;
 import com.hireflow.hireflow.data.model.Application;
-import com.hireflow.hireflow.data.model.Company;
+import com.hireflow.hireflow.company.entity.Company;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.JobListingSkill;
 import com.hireflow.hireflow.data.model.JobQuestion;
@@ -198,7 +198,7 @@ class ApplicationServiceImplTest {
         assertThat(saved.get().getAnswers().getFirst().getAnswer())
                 .isEqualTo("Built a Kafka pipeline with consumers and producers in production.");
 
-        // The Kafka event must NOT contain answers — Q&A is reserved for human review.
+        // The Kafka event must NOT contain answers â€” Q&A is reserved for human review.
         verify(aiScreeningEventProducer).publishApplicationSubmittedAsync(argThat(event ->
                 event != null && "application-1".equals(event.getApplicationId())
         ));
@@ -505,7 +505,7 @@ class ApplicationServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should refuse to advance to INTERVIEW_SCHEDULED via the generic PATCH /stage endpoint — callers must use POST /interview")
+    @DisplayName("Should refuse to advance to INTERVIEW_SCHEDULED via the generic PATCH /stage endpoint â€” callers must use POST /interview")
     void updateApplicationStage_cannotReachInterviewScheduledDirectly() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
 
@@ -524,7 +524,7 @@ class ApplicationServiceImplTest {
     }
 
     @Test
-    @DisplayName("Should reject invalid stage transitions (e.g. SCREENING → HIRED)")
+    @DisplayName("Should reject invalid stage transitions (e.g. SCREENING â†’ HIRED)")
     void updateApplicationStage_invalidTransition() {
         Application application = sampleApplication(ApplicationStage.SCREENING);
         when(userService.findUserById(manager.getId())).thenReturn(manager);
@@ -648,7 +648,7 @@ class ApplicationServiceImplTest {
         assertThat(response.getSucceeded()).isEqualTo(3);
         assertThat(response.getUpdatedApplicationIds()).containsExactly("application-1", "application-2", "application-3");
 
-        // Inorder verification: applicant 1 first, then 2, then 3 — each addressed to the right person.
+        // Inorder verification: applicant 1 first, then 2, then 3 â€” each addressed to the right person.
         org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(notificationEventProducer);
         inOrder.verify(notificationEventProducer).publishApplicationStageUpdate(argThat(n ->
                 n != null && "application-1".equals(n.getApplicationId())

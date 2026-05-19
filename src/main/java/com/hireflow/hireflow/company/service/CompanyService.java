@@ -1,9 +1,9 @@
-package com.hireflow.hireflow.service;
+package com.hireflow.hireflow.company.service;
 
-import com.hireflow.hireflow.data.model.Company;
+import com.hireflow.hireflow.company.dto.request.CompanyRequest;
+import com.hireflow.hireflow.company.dto.response.CompanyResponse;
+import com.hireflow.hireflow.company.entity.Company;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.dto.request.CompanyRequest;
-import com.hireflow.hireflow.dto.response.CompanyResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 

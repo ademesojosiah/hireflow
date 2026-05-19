@@ -1,10 +1,10 @@
-package com.hireflow.hireflow.controller;
+package com.hireflow.hireflow.company.controller;
 
-import com.hireflow.hireflow.dto.request.CompanyRequest;
+import com.hireflow.hireflow.company.dto.request.CompanyRequest;
+import com.hireflow.hireflow.company.dto.response.CompanyResponse;
+import com.hireflow.hireflow.company.service.CompanyService;
 import com.hireflow.hireflow.dto.response.ApiResponse;
-import com.hireflow.hireflow.dto.response.CompanyResponse;
 import com.hireflow.hireflow.security.UserPrincipal;
-import com.hireflow.hireflow.service.CompanyService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;

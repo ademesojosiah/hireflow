@@ -1,8 +1,8 @@
-package com.hireflow.hireflow.mapper;
+package com.hireflow.hireflow.company.mapper;
 
-import com.hireflow.hireflow.data.model.Company;
-import com.hireflow.hireflow.dto.request.CompanyRequest;
-import com.hireflow.hireflow.dto.response.CompanyResponse;
+import com.hireflow.hireflow.company.dto.request.CompanyRequest;
+import com.hireflow.hireflow.company.dto.response.CompanyResponse;
+import com.hireflow.hireflow.company.entity.Company;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Component;

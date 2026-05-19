@@ -1,6 +1,6 @@
-package com.hireflow.hireflow.data.repository;
+package com.hireflow.hireflow.company.repository;
 
-import com.hireflow.hireflow.data.model.Company;
+import com.hireflow.hireflow.company.entity.Company;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
