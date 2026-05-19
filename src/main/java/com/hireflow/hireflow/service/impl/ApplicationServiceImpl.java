@@ -4,6 +4,8 @@ import com.hireflow.hireflow.data.model.Application;
 import com.hireflow.hireflow.data.model.JobListing;
 import com.hireflow.hireflow.data.model.User;
 import com.hireflow.hireflow.data.repository.ApplicationRepository;
+import com.hireflow.hireflow.data.repository.projection.StageVolumeProjection;
+import com.hireflow.hireflow.data.repository.projection.TimeToHireProjection;
 import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.dto.request.BulkStageUpdateRequest;
 import com.hireflow.hireflow.dto.request.StageUpdateRequest;
@@ -243,7 +245,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 response.getCompanyName(),
                 "APPLIED",
                 "SCREENING",
-                "Queued for AI screening",
+                "Queued for screening",
                 "system",
                 "Your application is now in AI screening."
         ));
@@ -277,5 +279,17 @@ public class ApplicationServiceImpl implements ApplicationService {
             throw new AccessDeniedException("Authentication required");
         }
         return refreshed;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StageVolumeProjection> countApplicationsByStage(String companyId, String jobListingId) {
+        return applicationRepository.countByStageForCompany(companyId, jobListingId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimeToHireProjection> findHireDurations(String companyId, String jobListingId) {
+        return applicationRepository.findHiredDurationsForCompany(companyId, jobListingId);
     }
 }

@@ -1,6 +1,8 @@
 package com.hireflow.hireflow.service;
 
 import com.hireflow.hireflow.data.model.User;
+import com.hireflow.hireflow.data.repository.projection.StageVolumeProjection;
+import com.hireflow.hireflow.data.repository.projection.TimeToHireProjection;
 import com.hireflow.hireflow.dto.request.ApplyToJobRequest;
 import com.hireflow.hireflow.dto.request.BulkStageUpdateRequest;
 import com.hireflow.hireflow.dto.request.StageUpdateRequest;
@@ -13,6 +15,8 @@ import com.hireflow.hireflow.event.events.ResumeAnalysisCompletedEvent;
 import com.hireflow.hireflow.event.events.ScreeningCompletedEvent;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+
+import java.util.List;
 
 public interface ApplicationService {
 
@@ -35,4 +39,10 @@ public interface ApplicationService {
     void processInconsistencyReviewCompleted(InconsistencyReviewCompletedEvent event);
 
     void processScreeningCompleted(ScreeningCompletedEvent event);
+
+
+    List<StageVolumeProjection> countApplicationsByStage(String companyId, String jobListingId);
+
+
+    List<TimeToHireProjection> findHireDurations(String companyId, String jobListingId);
 }

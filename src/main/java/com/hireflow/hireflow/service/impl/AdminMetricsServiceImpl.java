@@ -2,9 +2,9 @@ package com.hireflow.hireflow.service.impl;
 
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.data.repository.projection.StageVolumeProjection;
 import com.hireflow.hireflow.data.repository.projection.TimeToHireProjection;
+import com.hireflow.hireflow.service.ApplicationService;
 import com.hireflow.hireflow.dto.response.ApplicationVolumeResponse;
 import com.hireflow.hireflow.dto.response.TimeToHireResponse;
 import com.hireflow.hireflow.enums.ApplicationStage;
@@ -12,7 +12,9 @@ import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.service.AdminMetricsService;
 import com.hireflow.hireflow.service.UserService;
+import com.hireflow.hireflow.config.RedisCacheConfig;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,16 +30,25 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminMetricsServiceImpl implements AdminMetricsService {
 
-    private final ApplicationRepository applicationRepository;
+    // AdminMetrics goes through ApplicationService (the application module's public API) rather than
+    // ApplicationRepository directly. This is the module-boundary discipline a modular monolith needs:
+    // module-to-module calls flow through interfaces, not data layers. See ARCHITECTURE_REVIEW.md.
+    private final ApplicationService applicationService;
     private final UserService userService;
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = RedisCacheConfig.ADMIN_METRICS_VOLUME,
+            // Per-caller (so two admins from different companies don't share a key) + per-jobListing filter.
+            // TTL-only invalidation; we accept up to 10min staleness on a dashboard.
+            key = "#caller.id + '::' + (#jobListingId ?: 'ALL')"
+    )
     public ApplicationVolumeResponse getApplicationVolume(User caller, String jobListingId) {
         User admin = requireAdminCaller(caller);
         String companyId = requireCompanyId(admin);
 
-        List<StageVolumeProjection> rows = applicationRepository.countByStageForCompany(companyId, jobListingId);
+        List<StageVolumeProjection> rows = applicationService.countApplicationsByStage(companyId, jobListingId);
 
         Map<ApplicationStage, Long> volumeByStage = new EnumMap<>(ApplicationStage.class);
         for (ApplicationStage stage : ApplicationStage.values()) {
@@ -55,11 +66,15 @@ public class AdminMetricsServiceImpl implements AdminMetricsService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = RedisCacheConfig.ADMIN_METRICS_TTH,
+            key = "#caller.id + '::' + (#jobListingId ?: 'ALL')"
+    )
     public TimeToHireResponse getTimeToHire(User caller, String jobListingId) {
         User admin = requireAdminCaller(caller);
         String companyId = requireCompanyId(admin);
 
-        List<TimeToHireProjection> rows = applicationRepository.findHiredDurationsForCompany(companyId, jobListingId);
+        List<TimeToHireProjection> rows = applicationService.findHireDurations(companyId, jobListingId);
 
         List<Long> durationsHours = new ArrayList<>(rows.size());
         for (TimeToHireProjection row : rows) {

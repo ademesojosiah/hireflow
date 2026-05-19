@@ -10,8 +10,11 @@ import com.hireflow.hireflow.exception.DuplicateResourceException;
 import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.SkillMapper;
 import com.hireflow.hireflow.service.SkillService;
+import com.hireflow.hireflow.config.RedisCacheConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +36,7 @@ public class SkillServiceImpl implements SkillService {
 
     @Override
     @Transactional
+    @CacheEvict(value = RedisCacheConfig.SKILL_SEARCH, allEntries = true)
     public SkillResponse create(SkillRequest request) {
         try {
             if (request == null) {
@@ -61,6 +65,12 @@ public class SkillServiceImpl implements SkillService {
     }
 
     @Override
+    @Cacheable(
+            value = RedisCacheConfig.SKILL_SEARCH,
+            key = "#query.toLowerCase().trim()",
+            // Don't cache the validation-failure path: short or null queries shouldn't pollute the cache.
+            unless = "#query == null || #query.trim().length() < 3"
+    )
     public List<SkillResponse> search(String query) {
         try {
             String prefix = normalizeName(query);

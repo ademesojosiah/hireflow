@@ -16,6 +16,7 @@ import com.hireflow.hireflow.enums.MeetingProvider;
 import com.hireflow.hireflow.enums.Role;
 import com.hireflow.hireflow.event.producer.NotificationEventProducer;
 import com.hireflow.hireflow.exception.CustomException;
+import com.hireflow.hireflow.exception.ResourceNotFoundException;
 import com.hireflow.hireflow.mapper.InterviewMapper;
 import com.hireflow.hireflow.restclient.MeetingLinkProvider;
 import com.hireflow.hireflow.service.impl.InterviewSchedulingPersistence;
@@ -242,6 +243,63 @@ class InterviewServiceImplTest {
         Instant start = Instant.now().plus(2, ChronoUnit.DAYS);
         Instant end = start.plus(1, ChronoUnit.HOURS);
         return new ScheduleInterviewRequest(start, end, "America/Los_Angeles", "maya@example.com", "Round 1 technical");
+    }
+
+    @Test
+    @DisplayName("Applicant can read the active interview slot on their own application")
+    void getInterview_asApplicant_returnsOwnSlot() {
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+        when(applicationRepository.findByIdAndApplicant_Id(application.getId(), applicant.getId()))
+                .thenReturn(Optional.of(application));
+        when(interviewSlotRepository.findByApplication_IdAndStatus(application.getId(), InterviewStatus.SCHEDULED))
+                .thenReturn(Optional.of(activeSlot()));
+
+        InterviewSlotResponse response = interviewService.getInterviewByApplication(application.getId(), applicant);
+
+        assertThat(response.getId()).isEqualTo("slot-1");
+        assertThat(response.getMeetingLink()).isEqualTo("https://meet.google.com/abc-defg-hij");
+        assertThat(response.getStatus()).isEqualTo(InterviewStatus.SCHEDULED);
+    }
+
+    @Test
+    @DisplayName("Applicant requesting an interview on someone else's application gets ResourceNotFoundException, not the slot")
+    void getInterview_asApplicant_otherApplication_isHidden() {
+        when(userService.findUserById(applicant.getId())).thenReturn(applicant);
+        when(applicationRepository.findByIdAndApplicant_Id(application.getId(), applicant.getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> interviewService.getInterviewByApplication(application.getId(), applicant))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Application not found");
+        // Importantly, we never query the interview slot table — the applicant can't even confirm a slot exists.
+        verify(interviewSlotRepository, never()).findByApplication_IdAndStatus(any(), any());
+    }
+
+    @Test
+    @DisplayName("Hiring manager can read the active interview slot on a company application")
+    void getInterview_asManager_returnsCompanySlot() {
+        when(userService.findUserById(manager.getId())).thenReturn(manager);
+        when(applicationRepository.findByIdAndCompanyId(application.getId(), company.getId()))
+                .thenReturn(Optional.of(application));
+        when(interviewSlotRepository.findByApplication_IdAndStatus(application.getId(), InterviewStatus.SCHEDULED))
+                .thenReturn(Optional.of(activeSlot()));
+
+        InterviewSlotResponse response = interviewService.getInterviewByApplication(application.getId(), manager);
+
+        assertThat(response.getId()).isEqualTo("slot-1");
+    }
+
+    @Test
+    @DisplayName("Hiring manager without a company gets AccessDeniedException on interview read")
+    void getInterview_asManagerWithoutCompany_throws() {
+        User detachedManager = new User("Maya", "Manager", "maya@example.com", "password", Role.HMANAGER, true);
+        detachedManager.setId("manager-1");
+        // company intentionally null
+        when(userService.findUserById(detachedManager.getId())).thenReturn(detachedManager);
+
+        assertThatThrownBy(() -> interviewService.getInterviewByApplication(application.getId(), detachedManager))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("must belong to a company");
     }
 
     private InterviewSlot activeSlot() {

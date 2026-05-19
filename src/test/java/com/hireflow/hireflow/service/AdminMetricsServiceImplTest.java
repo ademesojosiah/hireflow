@@ -2,7 +2,6 @@ package com.hireflow.hireflow.service;
 
 import com.hireflow.hireflow.data.model.Company;
 import com.hireflow.hireflow.data.model.User;
-import com.hireflow.hireflow.data.repository.ApplicationRepository;
 import com.hireflow.hireflow.data.repository.projection.StageVolumeProjection;
 import com.hireflow.hireflow.data.repository.projection.TimeToHireProjection;
 import com.hireflow.hireflow.dto.response.ApplicationVolumeResponse;
@@ -27,7 +26,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -37,7 +35,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AdminMetricsServiceImplTest {
 
-    @Mock private ApplicationRepository applicationRepository;
+    @Mock private ApplicationService applicationService;
     @Mock private UserService userService;
 
     private AdminMetricsServiceImpl adminMetricsService;
@@ -49,7 +47,7 @@ class AdminMetricsServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        adminMetricsService = new AdminMetricsServiceImpl(applicationRepository, userService);
+        adminMetricsService = new AdminMetricsServiceImpl(applicationService, userService);
 
         company = new Company();
         company.setId("company-1");
@@ -117,7 +115,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Returns counts for every stage, filling missing stages with zero")
         void returnsCountsForEveryStage_FillingMissingWithZero() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany(eq("company-1"), isNull()))
+            when(applicationService.countApplicationsByStage(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             stageRow(ApplicationStage.SCREENING, 4L),
                             stageRow(ApplicationStage.HIRED, 2L)
@@ -140,7 +138,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Returns zero for every stage when company has no applications")
         void returnsAllZeros_WhenNoApplications() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany(eq("company-1"), isNull()))
+            when(applicationService.countApplicationsByStage(eq("company-1"), isNull()))
                     .thenReturn(List.of());
 
             ApplicationVolumeResponse response = adminMetricsService.getApplicationVolume(admin, null);
@@ -155,7 +153,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Handles every stage populated and totals correctly")
         void totalsAllStagesCorrectly() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany(eq("company-1"), isNull()))
+            when(applicationService.countApplicationsByStage(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             stageRow(ApplicationStage.APPLIED, 12L),
                             stageRow(ApplicationStage.SCREENING, 47L),
@@ -177,7 +175,7 @@ class AdminMetricsServiceImplTest {
             StageVolumeProjection nullCountRow = new StageVolumeRow(ApplicationStage.APPLIED, null);
 
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany(eq("company-1"), isNull()))
+            when(applicationService.countApplicationsByStage(eq("company-1"), isNull()))
                     .thenReturn(List.of(nullCountRow));
 
             ApplicationVolumeResponse response = adminMetricsService.getApplicationVolume(admin, null);
@@ -190,14 +188,14 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Forwards jobListingId filter to repository and echoes it in response")
         void forwardsJobListingIdFilter() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany("company-1", "job-99"))
+            when(applicationService.countApplicationsByStage("company-1", "job-99"))
                     .thenReturn(List.of(stageRow(ApplicationStage.SCREENING, 1L)));
 
             ApplicationVolumeResponse response = adminMetricsService.getApplicationVolume(admin, "job-99");
 
             assertThat(response.getJobListingId()).isEqualTo("job-99");
             assertThat(response.getTotal()).isEqualTo(1L);
-            verify(applicationRepository).countByStageForCompany("company-1", "job-99");
+            verify(applicationService).countApplicationsByStage("company-1", "job-99");
         }
 
         @Test
@@ -210,13 +208,13 @@ class AdminMetricsServiceImplTest {
             staleAdmin.setCompany(otherCompany);
 
             when(userService.findUserById("admin-1")).thenReturn(admin);
-            when(applicationRepository.countByStageForCompany(eq("company-1"), isNull()))
+            when(applicationService.countApplicationsByStage(eq("company-1"), isNull()))
                     .thenReturn(List.of());
 
             adminMetricsService.getApplicationVolume(staleAdmin, null);
 
             ArgumentCaptor<String> companyIdCaptor = ArgumentCaptor.forClass(String.class);
-            verify(applicationRepository).countByStageForCompany(companyIdCaptor.capture(), isNull());
+            verify(applicationService).countApplicationsByStage(companyIdCaptor.capture(), isNull());
             assertThat(companyIdCaptor.getValue()).isEqualTo("company-1");
         }
 
@@ -226,7 +224,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getApplicationVolume(null, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -237,7 +235,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getApplicationVolume(applicant, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -248,7 +246,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getApplicationVolume(manager, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -259,7 +257,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getApplicationVolume(admin, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -271,7 +269,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getApplicationVolume(admin, null))
                     .isInstanceOf(ResourceNotFoundException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
     }
 
@@ -287,7 +285,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Returns empty stats when no hired applications")
         void returnsEmptyStats_WhenNoHires() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of());
 
             TimeToHireResponse response = adminMetricsService.getTimeToHire(admin, null);
@@ -305,7 +303,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Single hire: mean, median, p95, min, max all equal that one duration")
         void singleHire_AllStatsEqualThatDuration() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(durationRow(t(0), t(72)))); // 72 hours
 
             TimeToHireResponse response = adminMetricsService.getTimeToHire(admin, null);
@@ -322,7 +320,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Computes mean as integer rounded average of durations in hours")
         void computesMeanCorrectly() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), t(100)),
                             durationRow(t(0), t(200)),
@@ -338,7 +336,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Computes min and max correctly across many samples")
         void computesMinAndMax() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), t(50)),
                             durationRow(t(0), t(900)),
@@ -357,7 +355,7 @@ class AdminMetricsServiceImplTest {
         void computesMedian_OddSize() {
             // sorted: 100, 200, 300, 400, 500 → ceil(0.5*5)-1 = 2 → element[2] = 300
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), t(500)),
                             durationRow(t(0), t(100)),
@@ -376,7 +374,7 @@ class AdminMetricsServiceImplTest {
         void computesMedian_EvenSize() {
             // sorted: 100,200,300,400 → ceil(0.5*4)-1 = 1 → element[1] = 200
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), t(400)),
                             durationRow(t(0), t(200)),
@@ -398,7 +396,7 @@ class AdminMetricsServiceImplTest {
                 rows.add(durationRow(t(0), t(i * 10L)));
             }
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(rows);
 
             TimeToHireResponse response = adminMetricsService.getTimeToHire(admin, null);
@@ -412,7 +410,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Skips rows with null appliedAt")
         void skipsRowsWithNullAppliedAt() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(null, t(100)),
                             durationRow(t(0), t(200))
@@ -428,7 +426,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Skips rows with null hiredAt")
         void skipsRowsWithNullHiredAt() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), null),
                             durationRow(t(0), t(150))
@@ -444,7 +442,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Skips rows where hiredAt equals appliedAt (zero duration is excluded)")
         void skipsZeroDurationRows() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(0), t(0)),
                             durationRow(t(0), t(80))
@@ -460,7 +458,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Skips rows where hiredAt is before appliedAt (data corruption guard)")
         void skipsInvertedDurationRows() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(t(100), t(50)), // inverted
                             durationRow(t(0), t(80))
@@ -476,7 +474,7 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Returns empty stats when every row is invalid")
         void returnsEmpty_WhenEveryRowInvalid() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(
                             durationRow(null, t(50)),
                             durationRow(t(0), null),
@@ -497,7 +495,7 @@ class AdminMetricsServiceImplTest {
             Instant to = Instant.ofEpochSecond(5400);
 
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany(eq("company-1"), isNull()))
+            when(applicationService.findHireDurations(eq("company-1"), isNull()))
                     .thenReturn(List.of(durationRow(from, to)));
 
             TimeToHireResponse response = adminMetricsService.getTimeToHire(admin, null);
@@ -510,13 +508,13 @@ class AdminMetricsServiceImplTest {
         @DisplayName("Forwards jobListingId to repository and echoes it in response")
         void forwardsJobListingIdFilter() {
             when(userService.findUserById(admin.getId())).thenReturn(admin);
-            when(applicationRepository.findHiredDurationsForCompany("company-1", "job-77"))
+            when(applicationService.findHireDurations("company-1", "job-77"))
                     .thenReturn(List.of(durationRow(t(0), t(100))));
 
             TimeToHireResponse response = adminMetricsService.getTimeToHire(admin, "job-77");
 
             assertThat(response.getJobListingId()).isEqualTo("job-77");
-            verify(applicationRepository).findHiredDurationsForCompany("company-1", "job-77");
+            verify(applicationService).findHireDurations("company-1", "job-77");
         }
 
         @Test
@@ -525,7 +523,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getTimeToHire(null, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -536,7 +534,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getTimeToHire(applicant, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -547,7 +545,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getTimeToHire(manager, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -558,7 +556,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getTimeToHire(admin, null))
                     .isInstanceOf(AccessDeniedException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
 
         @Test
@@ -570,7 +568,7 @@ class AdminMetricsServiceImplTest {
             assertThatThrownBy(() -> adminMetricsService.getTimeToHire(admin, null))
                     .isInstanceOf(ResourceNotFoundException.class);
 
-            verifyNoInteractions(applicationRepository);
+            verifyNoInteractions(applicationService);
         }
     }
 }
